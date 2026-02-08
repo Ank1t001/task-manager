@@ -348,25 +348,9 @@ export default function App() {
               </div>
 
               {tasksView === "table" ? (
-                <TaskTable
-                  tasks={filteredTasks}
-                  onDelete={deleteTask}
-                  onUpdateTask={(updatedTask) => {
-                    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
-                  }}
-                  canEditAny={canEditAny}
-                  canEditTask={canEditTask}
-                />
+                <TaskTable theme={theme} ... />
               ) : (
-                <KanbanBoard
-                  tasks={filteredTasks}
-                  onDelete={deleteTask}
-                  onUpdateTask={(updatedTask) => {
-                    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
-                  }}
-                  canEditAny={canEditAny}
-                  canEditTask={canEditTask}
-                />
+                <KanbanBoard theme={theme} ... />
               )}
             </div>
           </div>
@@ -374,16 +358,10 @@ export default function App() {
 
         {/* New Task Modal */}
         <Modal
-          open={newTaskOpen}
-          title="New Task"
-          subtitle="Fill details and create a task."
-          onClose={() => setNewTaskOpen(false)}
-          footer={
-            <button style={s.btnSoft} onClick={() => setNewTaskOpen(false)}>
-              Close
-            </button>
-          }
-        >
+  open={newTaskOpen}
+  theme={theme}
+  ...
+>
           <TaskForm
             initialTask={null}
             canEdit={Boolean(email)}
