@@ -278,7 +278,7 @@ export default function App() {
         {/* Content */}
         {tab === "dashboard" ? (
           <div style={{ display: "grid", gap: 14 }}>
-            <MiniDashboard counts={dashboardCounts} />
+            <MiniDashboard counts={dashboardCounts} theme={theme} />
             <div style={s.card}>
               <div style={s.cardHeader}>
                 <div style={s.cardTitle}>Quick Tips</div>
@@ -449,7 +449,14 @@ function styles(theme) {
       opacity: dark ? 0.18 : 0.14,
     },
 
-    shell: { width: "100%", maxWidth: 1320, margin: "0 auto", display: "grid", gap: 14, position: "relative" },
+    shell: {
+  width: "100%",
+  maxWidth: "none",
+  margin: 0,
+  display: "grid",
+  gap: 14,
+  position: "relative",
+},
 
     topBar: {
       borderRadius: 18,
