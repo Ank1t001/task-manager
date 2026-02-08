@@ -19,7 +19,11 @@ function PriorityBadge({ p }) {
     Low: { bg: "#dcfce7", border: "#bbf7d0", color: "#166534" },
   };
   const s = map[p] || map.Medium;
-  return <span style={{ ...styles.badge, background: s.bg, borderColor: s.border, color: s.color }}>{p}</span>;
+  return (
+    <span style={{ ...styles.badge, background: s.bg, borderColor: s.border, color: s.color }}>
+      {p}
+    </span>
+  );
 }
 
 function StatusBadge({ s }) {
@@ -30,7 +34,11 @@ function StatusBadge({ s }) {
     Done: { bg: "#dcfce7", border: "#bbf7d0", color: "#166534" },
   };
   const st = map[s] || map["To Do"];
-  return <span style={{ ...styles.badge, background: st.bg, borderColor: st.border, color: st.color }}>{s}</span>;
+  return (
+    <span style={{ ...styles.badge, background: st.bg, borderColor: st.border, color: st.color }}>
+      {s}
+    </span>
+  );
 }
 
 export default function TaskTable({ tasks, onEdit, onDelete }) {
@@ -41,7 +49,7 @@ export default function TaskTable({ tasks, onEdit, onDelete }) {
       <table style={styles.table}>
         <thead>
           <tr>
-            {["Task", "Owner", "Priority", "Due", "Status", "External stakeholders", "Actions"].map((h) => (
+            {["Task", "Owner", "Section", "Priority", "Due", "Status", "External stakeholders", "Actions"].map((h) => (
               <th key={h} style={styles.th}>{h}</th>
             ))}
           </tr>
@@ -55,17 +63,30 @@ export default function TaskTable({ tasks, onEdit, onDelete }) {
                 <td style={styles.td}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div style={{ fontWeight: 700, color: "#111827" }}>{t.taskName}</div>
-                    {overdue && <span style={{ ...styles.badge, background: "#fecdd3", borderColor: "#fda4af", color: "#9f1239" }}>Overdue</span>}
+                    {overdue && (
+                      <span style={{ ...styles.badge, background: "#fecdd3", borderColor: "#fda4af", color: "#9f1239" }}>
+                        Overdue
+                      </span>
+                    )}
                   </div>
                 </td>
+
                 <td style={styles.td}><Badge text={t.owner} /></td>
+
+                <td style={styles.td}>
+                  <Badge text={t.section || "Other"} />
+                </td>
+
                 <td style={styles.td}><PriorityBadge p={t.priority} /></td>
                 <td style={styles.td}>{t.dueDate}</td>
                 <td style={styles.td}><StatusBadge s={t.status} /></td>
                 <td style={styles.td}>{t.externalStakeholders || <span style={{ color: "#9ca3af" }}>—</span>}</td>
+
                 <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
                   <button onClick={() => onEdit(t.id)} style={styles.linkBtn}>Edit</button>
-                  <button onClick={() => onDelete(t.id)} style={{ ...styles.linkBtn, color: "#b91c1c" }}>Delete</button>
+                  <button onClick={() => onDelete(t.id)} style={{ ...styles.linkBtn, color: "#b91c1c" }}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             );

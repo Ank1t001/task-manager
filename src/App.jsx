@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import TaskForm from "./components/TaskForm";
 import TaskTable from "./components/TaskTable";
 
-const STORAGE_KEY = "task_manager_tasks_v2";
+const STORAGE_KEY = "digital_team_task_tracker_v1";
 
 function loadTasks() {
   try {
@@ -27,6 +27,7 @@ function downloadCSV(tasks) {
   const headers = [
     "Task Name",
     "Owner",
+    "Section",
     "Priority",
     "Due Date",
     "Status",
@@ -38,6 +39,7 @@ function downloadCSV(tasks) {
   const rows = tasks.map((t) => [
     t.taskName,
     t.owner,
+    t.section,
     t.priority,
     t.dueDate,
     t.status,
@@ -54,7 +56,7 @@ function downloadCSV(tasks) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `tasks-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `digital-team-tasks-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -64,8 +66,9 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter] = useState("All");
+  const [sectionFilter, setSectionFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [sortDue, setSortDue] = useState("asc");
 
   useEffect(() => {
@@ -91,6 +94,16 @@ export default function App() {
     if (editingId === id) setEditingId(null);
   }
 
+  const owners = useMemo(() => {
+    const set = new Set(tasks.map((t) => t.owner));
+    return ["All", ...Array.from(set)];
+  }, [tasks]);
+
+  const sections = useMemo(() => {
+    const set = new Set(tasks.map((t) => t.section || "Other"));
+    return ["All", ...Array.from(set)];
+  }, [tasks]);
+
   const filteredTasks = useMemo(() => {
     let list = [...tasks];
 
@@ -98,8 +111,10 @@ export default function App() {
       const q = search.toLowerCase();
       list = list.filter((t) => t.taskName.toLowerCase().includes(q));
     }
-    if (statusFilter !== "All") list = list.filter((t) => t.status === statusFilter);
+
     if (ownerFilter !== "All") list = list.filter((t) => t.owner === ownerFilter);
+    if (sectionFilter !== "All") list = list.filter((t) => (t.section || "Other") === sectionFilter);
+    if (statusFilter !== "All") list = list.filter((t) => t.status === statusFilter);
 
     list.sort((a, b) => {
       const da = a.dueDate || "";
@@ -108,12 +123,7 @@ export default function App() {
     });
 
     return list;
-  }, [tasks, search, statusFilter, ownerFilter, sortDue]);
-
-  const owners = useMemo(() => {
-    const set = new Set(tasks.map((t) => t.owner));
-    return ["All", ...Array.from(set)];
-  }, [tasks]);
+  }, [tasks, search, ownerFilter, sectionFilter, statusFilter, sortDue]);
 
   return (
     <div style={styles.page}>
@@ -121,11 +131,11 @@ export default function App() {
         <div>
           <h1 style={{ margin: 0, fontSize: 22 }}>Digital Team Task Tracker</h1>
           <div style={{ color: "#6b7280", marginTop: 6, fontSize: 13 }}>
-            Track tasks with owners, priority, due dates, and stakeholders.
+            CRM-style visibility for Ads, Creative, Compliance, Landing Pages & Reporting.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button
             onClick={() => downloadCSV(filteredTasks)}
             style={styles.secondaryBtn}
@@ -149,9 +159,7 @@ export default function App() {
         </div>
 
         <div style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>Tasks</h2>
-          </div>
+          <h2 style={{ marginTop: 0, fontSize: 16 }}>Tasks</h2>
 
           <div style={styles.filters}>
             <input
@@ -164,6 +172,12 @@ export default function App() {
             <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={styles.input}>
               {owners.map((o) => (
                 <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+
+            <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={styles.input}>
+              {sections.map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
 
@@ -229,7 +243,7 @@ const styles = {
     border: "1px solid #d1d5db",
     background: "white",
     outline: "none",
-    flex: "1 1 200px",
+    flex: "1 1 180px",
   },
   pill: {
     padding: "6px 10px",
