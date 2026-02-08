@@ -13,7 +13,7 @@ function normalizeSubtasks(initialTask) {
     .map((x) => ({ id: x.id || crypto.randomUUID(), title: x.title, done: Boolean(x.done) }));
 }
 
-export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
+export default function TaskForm({ initialTask, onSubmit, onCancel, canEdit, isAdmin }) {
   const [taskName, setTaskName] = useState(initialTask?.taskName || "");
   const [owner, setOwner] = useState(initialTask?.owner || "");
   const [priority, setPriority] = useState(initialTask?.priority || "Medium");
@@ -24,7 +24,7 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
   );
   const [error, setError] = useState("");
 
-  // Section logic: fixed list + custom input when "Other"
+  // Section logic: fixed list + custom when "Other"
   const initialSection = SECTION_OPTIONS.includes(initialTask?.section)
     ? initialTask.section
     : "Other";
@@ -40,16 +40,11 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
   const isEditing = useMemo(() => Boolean(initialTask?.id), [initialTask]);
 
   function addSubtask() {
-    setSubtasks((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), title: "", done: false },
-    ]);
+    setSubtasks((prev) => [...prev, { id: crypto.randomUUID(), title: "", done: false }]);
   }
-
   function updateSubtask(id, patch) {
     setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
-
   function removeSubtask(id) {
     setSubtasks((prev) => prev.filter((s) => s.id !== id));
   }
@@ -61,13 +56,11 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
     if (!taskName.trim()) return setError("Task Name is required.");
     if (!owner) return setError("Owner is required.");
     if (!dueDate) return setError("Due date is required.");
-
     if (section === "Other" && !customSection.trim()) {
       return setError("Please type a custom section name (or choose a section).");
     }
 
-    const finalSection =
-      section === "Other" ? customSection.trim() || "Other" : section;
+    const finalSection = section === "Other" ? customSection.trim() || "Other" : section;
 
     const cleanedSubtasks = subtasks
       .map((s) => ({ ...s, title: (s.title || "").trim() }))
@@ -90,9 +83,9 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10 }}>
-      {!isAdmin && (
+      {!canEdit && (
         <div style={styles.alertInfo}>
-          You’re in <strong>Viewer</strong> mode. Only <strong>Ankit</strong> can add/edit tasks.
+          View-only mode. Log in (Access) to edit your tasks.
         </div>
       )}
 
@@ -104,43 +97,24 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
 
       <label style={styles.label}>
         Task Name
-        <input
-          style={styles.input}
-          value={taskName}
-          onChange={(e) => setTaskName(e.target.value)}
-          disabled={!isAdmin}
-        />
+        <input style={styles.input} value={taskName} onChange={(e) => setTaskName(e.target.value)} disabled={!canEdit} />
       </label>
 
       <label style={styles.label}>
         Owner
-        <select
-          style={styles.input}
-          value={owner}
-          onChange={(e) => setOwner(e.target.value)}
-          disabled={!isAdmin}
-        >
+        <select style={styles.input} value={owner} onChange={(e) => setOwner(e.target.value)} disabled={!canEdit || (!isAdmin && isEditing)}>
           <option value="">Select owner</option>
           {OWNER_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
+            <option key={o} value={o}>{o}</option>
           ))}
         </select>
       </label>
 
       <label style={styles.label}>
         Section
-        <select
-          style={styles.input}
-          value={section}
-          onChange={(e) => setSection(e.target.value)}
-          disabled={!isAdmin}
-        >
+        <select style={styles.input} value={section} onChange={(e) => setSection(e.target.value)} disabled={!canEdit}>
           {SECTION_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </label>
@@ -148,112 +122,63 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
       {section === "Other" && (
         <label style={styles.label}>
           Specify Section
-          <input
-            style={styles.input}
-            value={customSection}
-            onChange={(e) => setCustomSection(e.target.value)}
-            placeholder="Type custom section name"
-            disabled={!isAdmin}
-          />
+          <input style={styles.input} value={customSection} onChange={(e) => setCustomSection(e.target.value)} disabled={!canEdit} />
         </label>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <label style={styles.label}>
           Priority
-          <select
-            style={styles.input}
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            disabled={!isAdmin}
-          >
+          <select style={styles.input} value={priority} onChange={(e) => setPriority(e.target.value)} disabled={!canEdit}>
             {PRIORITY_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
+              <option key={p} value={p}>{p}</option>
             ))}
           </select>
         </label>
 
         <label style={styles.label}>
           Due date
-          <input
-            style={styles.input}
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            disabled={!isAdmin}
-          />
+          <input style={styles.input} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!canEdit} />
         </label>
       </div>
 
       <label style={styles.label}>
         Status
-        <select
-          style={styles.input}
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          disabled={!isAdmin}
-        >
+        <select style={styles.input} value={status} onChange={(e) => setStatus(e.target.value)} disabled={!canEdit}>
           {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </label>
 
       <label style={styles.label}>
         External Stakeholders
-        <input
-          style={styles.input}
-          value={externalStakeholders}
-          onChange={(e) => setExternalStakeholders(e.target.value)}
-          placeholder="e.g., Mads (Compliance), Lawyer"
-          disabled={!isAdmin}
-        />
+        <input style={styles.input} value={externalStakeholders} onChange={(e) => setExternalStakeholders(e.target.value)} disabled={!canEdit} />
       </label>
 
-      {/* Subtasks */}
       <div style={styles.subtasksCard}>
         <div style={styles.subtasksHeader}>
           <div style={{ fontWeight: 900 }}>Task Breakdown (Sub-tasks)</div>
-          <button
-            type="button"
-            onClick={addSubtask}
-            style={styles.smallBtn}
-            disabled={!isAdmin}
-          >
+          <button type="button" onClick={addSubtask} style={styles.smallBtn} disabled={!canEdit}>
             + Add sub-task
           </button>
         </div>
 
         {subtasks.length === 0 ? (
-          <div style={{ color: "#94a3b8", fontSize: 13 }}>No sub-tasks yet.</div>
+          <div style={{ color: "#6b7280", fontSize: 13 }}>No sub-tasks yet.</div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {subtasks.map((s, idx) => (
               <div key={s.id} style={styles.subtaskRow}>
-                <input
-                  type="checkbox"
-                  checked={s.done}
-                  onChange={(e) => updateSubtask(s.id, { done: e.target.checked })}
-                  disabled={!isAdmin}
-                />
+                <input type="checkbox" checked={s.done} onChange={(e) => updateSubtask(s.id, { done: e.target.checked })} disabled={!canEdit} />
                 <input
                   style={{ ...styles.input, margin: 0 }}
                   value={s.title}
                   onChange={(e) => updateSubtask(s.id, { title: e.target.value })}
                   placeholder={`Sub-task ${idx + 1}`}
-                  disabled={!isAdmin}
+                  disabled={!canEdit}
                 />
-                <button
-                  type="button"
-                  onClick={() => removeSubtask(s.id)}
-                  style={styles.dangerBtn}
-                  disabled={!isAdmin}
-                  title="Remove sub-task"
-                >
+                <button type="button" onClick={() => removeSubtask(s.id)} style={styles.dangerBtn} disabled={!canEdit}>
                   ✕
                 </button>
               </div>
@@ -263,10 +188,9 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="submit" style={styles.primaryBtn} disabled={!isAdmin}>
+        <button type="submit" style={styles.primaryBtn} disabled={!canEdit}>
           {isEditing ? "Update Task" : "Add Task"}
         </button>
-
         {isEditing && (
           <button type="button" onClick={onCancel} style={styles.secondaryBtn}>
             Cancel
@@ -278,83 +202,15 @@ export default function TaskForm({ initialTask, onSubmit, onCancel, isAdmin }) {
 }
 
 const styles = {
-  label: { display: "grid", gap: 6, fontSize: 13, color: "#e2e8f0" },
-  input: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.14)",
-    outline: "none",
-    background: "rgba(255,255,255,0.06)",
-    color: "#e2e8f0",
-  },
-  primaryBtn: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "#ffffff",
-    color: "#0b1220",
-    cursor: "pointer",
-    fontWeight: 900,
-  },
-  secondaryBtn: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "transparent",
-    color: "#e2e8f0",
-    cursor: "pointer",
-    fontWeight: 800,
-  },
-  alertWarn: {
-    background: "rgba(253, 230, 138, 0.10)",
-    border: "1px solid rgba(253, 230, 138, 0.35)",
-    padding: 10,
-    borderRadius: 12,
-    color: "#fde68a",
-  },
-  alertInfo: {
-    background: "rgba(96, 165, 250, 0.10)",
-    border: "1px solid rgba(96, 165, 250, 0.35)",
-    padding: 10,
-    borderRadius: 12,
-    color: "#bfdbfe",
-  },
-  subtasksCard: {
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.04)",
-    borderRadius: 14,
-    padding: 12,
-  },
-  subtasksHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-    color: "#e2e8f0",
-  },
-  subtaskRow: {
-    display: "grid",
-    gridTemplateColumns: "18px 1fr 34px",
-    gap: 8,
-    alignItems: "center",
-  },
-  smallBtn: {
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "transparent",
-    color: "#e2e8f0",
-    cursor: "pointer",
-    fontWeight: 800,
-  },
-  dangerBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    border: "1px solid rgba(248, 113, 113, 0.35)",
-    background: "rgba(248, 113, 113, 0.10)",
-    color: "#fecaca",
-    cursor: "pointer",
-    fontWeight: 900,
-  },
+  label: { display: "grid", gap: 6, fontSize: 13, color: "#1f2937" },
+  input: { padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", outline: "none", background: "white" },
+  primaryBtn: { padding: "10px 12px", borderRadius: 10, border: "1px solid #111827", background: "#111827", color: "white", cursor: "pointer", fontWeight: 800 },
+  secondaryBtn: { padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 800 },
+  alertWarn: { background: "#fff7ed", border: "1px solid #fed7aa", padding: 10, borderRadius: 10, color: "#7c2d12" },
+  alertInfo: { background: "#eff6ff", border: "1px solid #bfdbfe", padding: 10, borderRadius: 10, color: "#1d4ed8", fontWeight: 700 },
+  subtasksCard: { border: "1px solid #e5e7eb", background: "#f9fafb", borderRadius: 14, padding: 12 },
+  subtasksHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, color: "#111827" },
+  subtaskRow: { display: "grid", gridTemplateColumns: "18px 1fr 34px", gap: 8, alignItems: "center" },
+  smallBtn: { padding: "8px 10px", borderRadius: 10, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 800 },
+  dangerBtn: { width: 34, height: 34, borderRadius: 10, border: "1px solid #fecaca", background: "#fff1f2", color: "#b91c1c", cursor: "pointer", fontWeight: 900 },
 };
