@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import TaskForm from "./components/TaskForm";
 import TaskTable from "./components/TaskTable";
 import MiniDashboard from "./components/MiniDashboard";
+import KanbanBoard from "./components/KanbanBoard";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
@@ -110,8 +111,11 @@ export default function App() {
   const [tasks, setTasks] = useState(() => loadTasks());
   const [editingId, setEditingId] = useState(null);
 
-  // tabs
+  // main tabs
   const [tab, setTab] = useState("dashboard"); // "dashboard" | "tasks"
+
+  // ✅ Step 3 addition: tasks view toggle (Table/Kanban)
+  const [tasksView, setTasksView] = useState("table"); // "table" | "kanban"
 
   // filters
   const [search, setSearch] = useState("");
@@ -197,6 +201,7 @@ export default function App() {
   function updateTask(updated) {
     const allowed = canEditAny || canEditTask(updated);
     if (!allowed) return;
+
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setEditingId(null);
   }
@@ -204,6 +209,7 @@ export default function App() {
   function deleteTask(id) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
+
     const allowed = canEditAny || canEditTask(task);
     if (!allowed) return;
 
@@ -246,9 +252,11 @@ export default function App() {
                 Logout
               </button>
             )}
+
             <button onClick={() => downloadCSV(filteredTasks)} style={styles.btnSecondary}>
               Export CSV
             </button>
+
             <div style={styles.pill}>{filteredTasks.length} tasks</div>
           </div>
         </div>
@@ -270,8 +278,8 @@ export default function App() {
 
             <div style={styles.card}>
               <div style={styles.cardHeader}>
-                <div style={styles.cardTitle}>Quick Add</div>
-                <div style={styles.cardHint}>Add a task fast (sub-tasks supported)</div>
+                <div style={styles.cardTitle}>{editingTask ? "Edit Task" : "Quick Add"}</div>
+                <div style={styles.cardHint}>Add or edit tasks (sub-tasks supported).</div>
               </div>
 
               <TaskForm
@@ -287,10 +295,28 @@ export default function App() {
         ) : (
           <div style={{ display: "grid", gap: 14 }}>
             <div style={styles.card}>
-              <div style={styles.cardHeader}>
-                <div style={styles.cardTitle}>Tasks</div>
-                <div style={styles.cardHint}>
-                  Filter, sort, edit (if allowed), export.
+              <div style={styles.cardHeaderRow}>
+                <div>
+                  <div style={styles.cardTitle}>Tasks</div>
+                  <div style={styles.cardHint}>Table + Kanban, filters, inline sub-tasks.</div>
+                </div>
+
+                {/* ✅ Step 3 addition: view toggle */}
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setTasksView("table")}
+                    style={tasksView === "table" ? styles.tabActive : styles.tab}
+                  >
+                    Table
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTasksView("kanban")}
+                    style={tasksView === "kanban" ? styles.tabActive : styles.tab}
+                  >
+                    Kanban
+                  </button>
                 </div>
               </div>
 
@@ -304,19 +330,25 @@ export default function App() {
 
                 <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={styles.input}>
                   {owners.map((o) => (
-                    <option key={o} value={o}>{o}</option>
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
                   ))}
                 </select>
 
                 <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={styles.input}>
                   {sections.map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </select>
 
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.input}>
                   {["All", "To Do", "In Progress", "Blocked", "Done"].map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </select>
 
@@ -326,20 +358,38 @@ export default function App() {
                 </select>
               </div>
 
-              <TaskTable
-  tasks={filteredTasks}
-  onEdit={(id) => {
-    setEditingId(id);
-    setTab("dashboard");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }}
-  onDelete={deleteTask}
-  onUpdateTask={(updatedTask) => {
-    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
-  }}
-  canEditAny={canEditAny}
-  canEditTask={canEditTask}
-/>
+              {/* ✅ Step 3 addition: conditional render Table / Kanban */}
+              {tasksView === "table" ? (
+                <TaskTable
+                  tasks={filteredTasks}
+                  onEdit={(id) => {
+                    setEditingId(id);
+                    setTab("dashboard");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onDelete={deleteTask}
+                  onUpdateTask={(updatedTask) => {
+                    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+                  }}
+                  canEditAny={canEditAny}
+                  canEditTask={canEditTask}
+                />
+              ) : (
+                <KanbanBoard
+                  tasks={filteredTasks}
+                  onEdit={(id) => {
+                    setEditingId(id);
+                    setTab("dashboard");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onDelete={deleteTask}
+                  onUpdateTask={(updatedTask) => {
+                    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+                  }}
+                  canEditAny={canEditAny}
+                  canEditTask={canEditTask}
+                />
+              )}
             </div>
           </div>
         )}
@@ -357,15 +407,12 @@ const styles = {
     color: "#e5e7eb",
     fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
   },
-
-  // full width shell fixes the “blank space on right” look
   shell: {
     width: "min(1320px, 100%)",
     margin: "0 auto",
     display: "grid",
     gap: 14,
   },
-
   topBar: {
     borderRadius: 18,
     border: "1px solid rgba(255,255,255,0.10)",
@@ -402,11 +449,7 @@ const styles = {
     color: "#e5e7eb",
   },
 
-  tabsRow: {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-  },
+  tabsRow: { display: "flex", gap: 10, alignItems: "center" },
   tab: {
     padding: "10px 12px",
     borderRadius: 999,
@@ -417,9 +460,13 @@ const styles = {
     fontWeight: 900,
   },
   tabActive: {
+    padding: "10px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.22)",
     background: "rgba(255,255,255,0.10)",
-    borderColor: "rgba(255,255,255,0.22)",
     color: "#ffffff",
+    cursor: "pointer",
+    fontWeight: 900,
   },
 
   card: {
@@ -429,7 +476,16 @@ const styles = {
     backdropFilter: "blur(8px)",
     padding: 16,
   },
+
   cardHeader: { marginBottom: 12 },
+  cardHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginBottom: 12,
+  },
   cardTitle: { fontSize: 16, fontWeight: 900, color: "#f8fafc" },
   cardHint: { marginTop: 6, fontSize: 12, color: "rgba(226,232,240,0.78)" },
 
