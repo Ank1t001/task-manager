@@ -1,5 +1,7 @@
-export async function onRequest() {
-  // This endpoint is protected by Access because it is under /api/*
-  // After successful login, redirect user back to the homepage.
-  return Response.redirect("/", 302);
+export async function onRequest(context) {
+  const url = new URL(context.request.url);
+  const returnTo = url.searchParams.get("returnTo") || "/";
+
+  // After Access login succeeds, redirect user back to app
+  return Response.redirect(returnTo, 302);
 }

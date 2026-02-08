@@ -4,7 +4,7 @@ import TaskTable from "./components/TaskTable";
 import MiniDashboard from "./components/MiniDashboard";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-const ADMIN_EMAIL = "ankit@digijabber.com"; // ✅ set your admin email here
+const ADMIN_EMAIL = "ankit@digijabber.com"; // <-- change if needed
 
 function loadTasks() {
   try {
@@ -82,12 +82,11 @@ function downloadCSV(tasks) {
   URL.revokeObjectURL(url);
 }
 
-/** ✅ Login triggers Cloudflare Access because /api/* is protected */
 function goToLogin() {
-  window.location.href = "/api/login";
+  const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `/api/login?returnTo=${returnTo}`;
 }
 
-/** ✅ Logout endpoint for Cloudflare Access */
 function goToLogout() {
   window.location.href = "/cdn-cgi/access/logout";
 }
@@ -103,12 +102,12 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortDue, setSortDue] = useState("asc");
 
-  // identity (optional)
+  // identity
   const [email, setEmail] = useState(""); // empty = public viewer
 
   useEffect(() => saveTasks(tasks), [tasks]);
 
-  // Try to fetch identity — will fail for public viewers (Access blocks /api/*)
+  // Fetch identity (will fail for public viewers because /api is Access-protected)
   useEffect(() => {
     fetch("/api/me")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -121,15 +120,22 @@ export default function App() {
     [email]
   );
 
-  // Team member can edit ONLY if logged in (email exists) and task owner matches their name or email
+  /**
+   * Team members can edit only tasks assigned to them.
+   * Current Owner field is a NAME (Ankit/Sheel/etc), and identity is EMAIL.
+   * This maps by checking if the email username contains the owner name.
+   * Example: sheel@domain.com -> can edit Owner "Sheel"
+   */
   function canEditTask(task) {
     if (!email) return false; // public viewer
-    const ownerName = String(task?.owner || "").toLowerCase();
-    const emailUser = email.split("@")[0]?.toLowerCase() || "";
-    return ownerName && emailUser && emailUser.includes(ownerName);
+
+    const ownerName = String(task?.owner || "").toLowerCase().trim();
+    const emailUser = (email.split("@")[0] || "").toLowerCase();
+
+    return ownerName && emailUser.includes(ownerName);
   }
 
-  const canEditAny = isAdmin; // admin can edit all
+  const canEditAny = isAdmin;
 
   const editingTask = useMemo(
     () => tasks.find((t) => t.id === editingId) || null,
@@ -175,14 +181,14 @@ export default function App() {
   }, [tasks]);
 
   function addTask(task) {
-    // only logged-in users should add tasks
-    if (!email) return;
+    if (!email) return; // must be logged in
     setTasks((prev) => [{ ...task, id: crypto.randomUUID() }, ...prev]);
   }
 
   function updateTask(updated) {
-    const canEditThis = canEditAny || canEditTask(updated);
-    if (!canEditThis) return;
+    const allowed = canEditAny || canEditTask(updated);
+    if (!allowed) return;
+
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setEditingId(null);
   }
@@ -190,14 +196,17 @@ export default function App() {
   function deleteTask(id) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    const canEditThis = canEditAny || canEditTask(task);
-    if (!canEditThis) return;
+
+    const allowed = canEditAny || canEditTask(task);
+    if (!allowed) return;
 
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
-  const canEditCurrent = editingTask ? (canEditAny || canEditTask(editingTask)) : Boolean(email);
+  const canEditCurrent = editingTask
+    ? canEditAny || canEditTask(editingTask)
+    : Boolean(email);
 
   return (
     <div style={styles.page}>
@@ -218,7 +227,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ✅ LOGIN / LOGOUT BUTTONS ADDED HERE */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {!email ? (
             <button onClick={goToLogin} style={styles.secondaryBtn}>
@@ -243,7 +251,10 @@ export default function App() {
 
         <div style={styles.grid}>
           <div style={styles.card}>
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>{editingTask ? "Edit Task" : "Add Task"}</h2>
+            <h2 style={{ marginTop: 0, fontSize: 16 }}>
+              {editingTask ? "Edit Task" : "Add Task"}
+            </h2>
+
             <TaskForm
               key={editingTask?.id || "new"}
               initialTask={editingTask}
@@ -258,7 +269,12 @@ export default function App() {
             <h2 style={{ marginTop: 0, fontSize: 16 }}>Tasks</h2>
 
             <div style={styles.filters}>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." style={styles.input} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search..."
+                style={styles.input}
+              />
 
               <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={styles.input}>
                 {owners.map((o) => (
@@ -334,7 +350,29 @@ const styles = {
     boxShadow: "0 6px 20px rgba(15, 23, 42, 0.05)",
   },
   filters: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 },
-  input: { padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", background: "white", outline: "none", flex: "1 1 180px" },
-  pill: { padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12, fontWeight: 900, color: "#111827" },
-  secondaryBtn: { padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 900 },
+  input: {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "white",
+    outline: "none",
+    flex: "1 1 180px",
+  },
+  pill: {
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid #e5e7eb",
+    background: "#fff",
+    fontSize: 12,
+    fontWeight: 900,
+    color: "#111827",
+  },
+  secondaryBtn: {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "white",
+    cursor: "pointer",
+    fontWeight: 900,
+  },
 };
