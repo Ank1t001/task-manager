@@ -4,7 +4,7 @@ import TaskTable from "./components/TaskTable";
 import MiniDashboard from "./components/MiniDashboard";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-const ADMIN_EMAIL = "ankit@digijabber.com"; // <-- change if needed
+const ADMIN_EMAIL = "ankit@digijabber.com";
 
 function loadTasks() {
   try {
@@ -91,9 +91,27 @@ function goToLogout() {
   window.location.href = "/cdn-cgi/access/logout";
 }
 
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...styles.tab,
+        ...(active ? styles.tabActive : {}),
+      }}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function App() {
   const [tasks, setTasks] = useState(() => loadTasks());
   const [editingId, setEditingId] = useState(null);
+
+  // tabs
+  const [tab, setTab] = useState("dashboard"); // "dashboard" | "tasks"
 
   // filters
   const [search, setSearch] = useState("");
@@ -103,11 +121,10 @@ export default function App() {
   const [sortDue, setSortDue] = useState("asc");
 
   // identity
-  const [email, setEmail] = useState(""); // empty = public viewer
+  const [email, setEmail] = useState("");
 
   useEffect(() => saveTasks(tasks), [tasks]);
 
-  // Fetch identity (will fail for public viewers because /api is Access-protected)
   useEffect(() => {
     fetch("/api/me")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -120,18 +137,10 @@ export default function App() {
     [email]
   );
 
-  /**
-   * Team members can edit only tasks assigned to them.
-   * Current Owner field is a NAME (Ankit/Sheel/etc), and identity is EMAIL.
-   * This maps by checking if the email username contains the owner name.
-   * Example: sheel@domain.com -> can edit Owner "Sheel"
-   */
   function canEditTask(task) {
-    if (!email) return false; // public viewer
-
+    if (!email) return false;
     const ownerName = String(task?.owner || "").toLowerCase().trim();
     const emailUser = (email.split("@")[0] || "").toLowerCase();
-
     return ownerName && emailUser.includes(ownerName);
   }
 
@@ -181,14 +190,13 @@ export default function App() {
   }, [tasks]);
 
   function addTask(task) {
-    if (!email) return; // must be logged in
+    if (!email) return;
     setTasks((prev) => [{ ...task, id: crypto.randomUUID() }, ...prev]);
   }
 
   function updateTask(updated) {
     const allowed = canEditAny || canEditTask(updated);
     if (!allowed) return;
-
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setEditingId(null);
   }
@@ -196,7 +204,6 @@ export default function App() {
   function deleteTask(id) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-
     const allowed = canEditAny || canEditTask(task);
     if (!allowed) return;
 
@@ -210,105 +217,132 @@ export default function App() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.header}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22 }}>Digital Team Task Tracker</h1>
-          <div style={{ color: "#6b7280", marginTop: 6, fontSize: 13 }}>
-            Public view • Team edits their own tasks • Admin (Ankit) manages all.
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-            {email ? (
-              <>
-                Signed in: <strong>{email}</strong> ({isAdmin ? "Admin" : "Team"})
-              </>
-            ) : (
-              <>Viewer mode (not signed in)</>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {!email ? (
-            <button onClick={goToLogin} style={styles.secondaryBtn}>
-              Login
-            </button>
-          ) : (
-            <button onClick={goToLogout} style={styles.secondaryBtn}>
-              Logout
-            </button>
-          )}
-
-          <button onClick={() => downloadCSV(filteredTasks)} style={styles.secondaryBtn}>
-            Export CSV
-          </button>
-
-          <div style={styles.pill}>{filteredTasks.length} tasks</div>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 1150, margin: "0 auto" }}>
-        <MiniDashboard counts={dashboardCounts} />
-
-        <div style={styles.grid}>
-          <div style={styles.card}>
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>
-              {editingTask ? "Edit Task" : "Add Task"}
-            </h2>
-
-            <TaskForm
-              key={editingTask?.id || "new"}
-              initialTask={editingTask}
-              onCancel={() => setEditingId(null)}
-              onSubmit={(task) => (editingTask ? updateTask(task) : addTask(task))}
-              canEdit={canEditCurrent}
-              isAdmin={isAdmin}
-            />
-          </div>
-
-          <div style={styles.card}>
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>Tasks</h2>
-
-            <div style={styles.filters}>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search..."
-                style={styles.input}
-              />
-
-              <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={styles.input}>
-                {owners.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-
-              <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={styles.input}>
-                {sections.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.input}>
-                {["All", "To Do", "In Progress", "Blocked", "Done"].map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-
-              <select value={sortDue} onChange={(e) => setSortDue(e.target.value)} style={styles.input}>
-                <option value="asc">Due ↑</option>
-                <option value="desc">Due ↓</option>
-              </select>
+      <div style={styles.shell}>
+        {/* Top Bar */}
+        <div style={styles.topBar}>
+          <div>
+            <div style={styles.title}>Digital Team Task Tracker</div>
+            <div style={styles.subtitle}>
+              Public view • Team edits their own tasks • Admin (Ankit) manages all.
             </div>
+            <div style={styles.identity}>
+              {email ? (
+                <>
+                  Signed in: <strong>{email}</strong> ({isAdmin ? "Admin" : "Team"})
+                </>
+              ) : (
+                <>Viewer mode (not signed in)</>
+              )}
+            </div>
+          </div>
 
-            <TaskTable
-              tasks={filteredTasks}
-              onEdit={setEditingId}
-              onDelete={deleteTask}
-              canEditAny={canEditAny}
-              canEditTask={canEditTask}
-            />
+          <div style={styles.topActions}>
+            {!email ? (
+              <button onClick={goToLogin} style={styles.btnSecondary}>
+                Login
+              </button>
+            ) : (
+              <button onClick={goToLogout} style={styles.btnSecondary}>
+                Logout
+              </button>
+            )}
+            <button onClick={() => downloadCSV(filteredTasks)} style={styles.btnSecondary}>
+              Export CSV
+            </button>
+            <div style={styles.pill}>{filteredTasks.length} tasks</div>
           </div>
         </div>
+
+        {/* Tabs */}
+        <div style={styles.tabsRow}>
+          <TabButton active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
+            Dashboard
+          </TabButton>
+          <TabButton active={tab === "tasks"} onClick={() => setTab("tasks")}>
+            Tasks
+          </TabButton>
+        </div>
+
+        {/* Content */}
+        {tab === "dashboard" ? (
+          <div style={{ display: "grid", gap: 14 }}>
+            <MiniDashboard counts={dashboardCounts} />
+
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <div style={styles.cardTitle}>Quick Add</div>
+                <div style={styles.cardHint}>Add a task fast (sub-tasks supported)</div>
+              </div>
+
+              <TaskForm
+                key={editingTask?.id || "new"}
+                initialTask={editingTask}
+                onCancel={() => setEditingId(null)}
+                onSubmit={(task) => (editingTask ? updateTask(task) : addTask(task))}
+                canEdit={canEditCurrent}
+                isAdmin={isAdmin}
+              />
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <div style={styles.cardTitle}>Tasks</div>
+                <div style={styles.cardHint}>
+                  Filter, sort, edit (if allowed), export.
+                </div>
+              </div>
+
+              <div style={styles.filters}>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by task name..."
+                  style={styles.input}
+                />
+
+                <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={styles.input}>
+                  {owners.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+
+                <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={styles.input}>
+                  {sections.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.input}>
+                  {["All", "To Do", "In Progress", "Blocked", "Done"].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+
+                <select value={sortDue} onChange={(e) => setSortDue(e.target.value)} style={styles.input}>
+                  <option value="asc">Due ↑</option>
+                  <option value="desc">Due ↓</option>
+                </select>
+              </div>
+
+              <TaskTable
+  tasks={filteredTasks}
+  onEdit={(id) => {
+    setEditingId(id);
+    setTab("dashboard");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }}
+  onDelete={deleteTask}
+  onUpdateTask={(updatedTask) => {
+    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+  }}
+  canEditAny={canEditAny}
+  canEditTask={canEditTask}
+/>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -317,62 +351,101 @@ export default function App() {
 const styles = {
   page: {
     minHeight: "100vh",
-    padding: 18,
     background:
-      "radial-gradient(1200px 600px at 20% 0%, #eef2ff 0%, transparent 60%), radial-gradient(1000px 500px at 80% 0%, #ecfeff 0%, transparent 55%), #f8fafc",
-    fontFamily: "Arial",
+      "radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.20) 0%, transparent 60%), radial-gradient(1100px 600px at 80% 0%, rgba(16,185,129,0.16) 0%, transparent 55%), #070B14",
+    padding: 16,
+    color: "#e5e7eb",
+    fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
   },
-  header: {
-    maxWidth: 1150,
-    margin: "8px auto 16px",
-    padding: "14px 16px",
-    borderRadius: 16,
-    border: "1px solid #e5e7eb",
-    background: "rgba(255,255,255,0.85)",
-    backdropFilter: "blur(6px)",
+
+  // full width shell fixes the “blank space on right” look
+  shell: {
+    width: "min(1320px, 100%)",
+    margin: "0 auto",
+    display: "grid",
+    gap: 14,
+  },
+
+  topBar: {
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.05)",
+    backdropFilter: "blur(8px)",
+    padding: "16px 16px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
     flexWrap: "wrap",
   },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1.3fr",
-    gap: 16,
-    alignItems: "start",
-  },
-  card: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 16,
-    padding: 16,
-    background: "rgba(255,255,255,0.9)",
-    boxShadow: "0 6px 20px rgba(15, 23, 42, 0.05)",
-  },
-  filters: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 },
-  input: {
+  title: { fontSize: 22, fontWeight: 900, color: "#f8fafc" },
+  subtitle: { marginTop: 6, color: "rgba(226,232,240,0.78)", fontSize: 13 },
+  identity: { marginTop: 6, color: "rgba(226,232,240,0.78)", fontSize: 12 },
+
+  topActions: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  btnSecondary: {
     padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #d1d5db",
-    background: "white",
-    outline: "none",
-    flex: "1 1 180px",
-  },
-  pill: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid #e5e7eb",
-    background: "#fff",
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#111827",
-  },
-  secondaryBtn: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #d1d5db",
-    background: "white",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.06)",
+    color: "#e5e7eb",
     cursor: "pointer",
     fontWeight: 900,
+  },
+  pill: {
+    padding: "7px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.06)",
+    fontSize: 12,
+    fontWeight: 900,
+    color: "#e5e7eb",
+  },
+
+  tabsRow: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+  },
+  tab: {
+    padding: "10px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.04)",
+    color: "rgba(226,232,240,0.85)",
+    cursor: "pointer",
+    fontWeight: 900,
+  },
+  tabActive: {
+    background: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(255,255,255,0.22)",
+    color: "#ffffff",
+  },
+
+  card: {
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.05)",
+    backdropFilter: "blur(8px)",
+    padding: 16,
+  },
+  cardHeader: { marginBottom: 12 },
+  cardTitle: { fontSize: 16, fontWeight: 900, color: "#f8fafc" },
+  cardHint: { marginTop: 6, fontSize: 12, color: "rgba(226,232,240,0.78)" },
+
+  filters: {
+    display: "grid",
+    gridTemplateColumns: "1.2fr repeat(4, minmax(0, 1fr))",
+    gap: 10,
+    marginBottom: 12,
+  },
+  input: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "#e5e7eb",
+    outline: "none",
+    width: "100%",
   },
 };
