@@ -109,8 +109,8 @@ function TabButton({ active, onClick, children, s }) {
 export default function App() {
   const [tasks, setTasks] = useState(() => loadTasks());
 
-  const [tab, setTab] = useState("dashboard"); // dashboard | tasks
-  const [tasksView, setTasksView] = useState("table"); // table | kanban
+  const [tab, setTab] = useState("dashboard");
+  const [tasksView, setTasksView] = useState("table");
 
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("All");
@@ -118,13 +118,9 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortDue, setSortDue] = useState("asc");
 
-  // Light/Dark (kept) but now both are “brand”
   const [theme, setTheme] = useState(() => localStorage.getItem("dtt_theme") || "dark");
-
-  // Identity
   const [email, setEmail] = useState("");
 
-  // New Task modal
   const [newTaskOpen, setNewTaskOpen] = useState(false);
 
   useEffect(() => saveTasks(tasks), [tasks]);
@@ -207,7 +203,6 @@ export default function App() {
 
   return (
     <div style={s.page}>
-      {/* Soft background “grid” to reduce empty-screen feel */}
       <div style={s.bgGrid} />
 
       <div style={s.shell}>
@@ -217,11 +212,6 @@ export default function App() {
             <div style={s.titleRow}>
               <div style={s.brandDot} />
               <div style={s.title}>Digital Team Task Tracker</div>
-              <div style={s.goldPill}>Navy • Gold</div>
-            </div>
-
-            <div style={s.subtitle}>
-              Public view • Team edits their own tasks • Admin (Ankit) manages all.
             </div>
 
             <div style={s.identity}>
@@ -289,7 +279,6 @@ export default function App() {
         {tab === "dashboard" ? (
           <div style={{ display: "grid", gap: 14 }}>
             <MiniDashboard counts={dashboardCounts} />
-
             <div style={s.card}>
               <div style={s.cardHeader}>
                 <div style={s.cardTitle}>Quick Tips</div>
@@ -417,25 +406,26 @@ function styles(theme) {
 
   const NAVY_900 = "#071321";
   const NAVY_800 = "#0B1E33";
-  const NAVY_700 = "#102A46";
   const GOLD = "#D4AF37";
   const GOLD_SOFT = "rgba(212,175,55,0.22)";
 
+  // ✅ Optimized light mode: clean, not washed-out
   const bg = dark
     ? `radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.18) 0%, transparent 60%),
        radial-gradient(1100px 600px at 80% 0%, rgba(212,175,55,0.12) 0%, transparent 55%),
        linear-gradient(180deg, ${NAVY_800}, ${NAVY_900})`
-    : `radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.12) 0%, transparent 60%),
-       radial-gradient(1100px 600px at 80% 0%, rgba(212,175,55,0.10) 0%, transparent 55%),
-       #F7FAFF`;
+    : `linear-gradient(180deg, #F8FAFF 0%, #EEF3FF 40%, #F8FAFF 100%)`;
 
   const text = dark ? "#EAF0FF" : "#0f172a";
-  const subtext = dark ? "rgba(226,232,240,0.78)" : "rgba(15,23,42,0.68)";
+  const subtext = dark ? "rgba(226,232,240,0.78)" : "rgba(15,23,42,0.70)";
 
   const border = dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.12)";
+
   const cardBg = dark
     ? "linear-gradient(180deg, rgba(16,42,70,0.55), rgba(7,19,33,0.55))"
-    : "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72))";
+    : "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.80))";
+
+  const shadow = dark ? "0 14px 40px rgba(0,0,0,0.28)" : "0 14px 40px rgba(15,23,42,0.10)";
 
   return {
     page: {
@@ -452,11 +442,11 @@ function styles(theme) {
       inset: 0,
       backgroundImage: dark
         ? "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)"
-        : "linear-gradient(rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.06) 1px, transparent 1px)",
+        : "linear-gradient(rgba(15,23,42,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.05) 1px, transparent 1px)",
       backgroundSize: "60px 60px",
-      maskImage: "radial-gradient(closest-side, rgba(0,0,0,0.55), transparent 70%)",
+      maskImage: "radial-gradient(closest-side, rgba(0,0,0,0.35), transparent 75%)",
       pointerEvents: "none",
-      opacity: dark ? 0.22 : 0.18,
+      opacity: dark ? 0.18 : 0.14,
     },
 
     shell: { width: "100%", maxWidth: 1320, margin: "0 auto", display: "grid", gap: 14, position: "relative" },
@@ -472,7 +462,7 @@ function styles(theme) {
       alignItems: "center",
       gap: 14,
       flexWrap: "wrap",
-      boxShadow: dark ? "0 18px 50px rgba(0,0,0,0.35)" : "0 18px 50px rgba(15,23,42,0.08)",
+      boxShadow: shadow,
     },
 
     titleRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
@@ -484,18 +474,8 @@ function styles(theme) {
       boxShadow: "0 0 0 4px rgba(212,175,55,0.12)",
     },
     title: { fontSize: 22, fontWeight: 950, color: text },
-    goldPill: {
-      padding: "6px 10px",
-      borderRadius: 999,
-      border: `1px solid ${GOLD_SOFT}`,
-      background: dark ? "rgba(212,175,55,0.10)" : "rgba(212,175,55,0.12)",
-      color: dark ? "#FDE68A" : "#7c5f13",
-      fontWeight: 950,
-      fontSize: 12,
-    },
 
-    subtitle: { marginTop: 6, color: subtext, fontSize: 13 },
-    identity: { marginTop: 6, color: subtext, fontSize: 12 },
+    identity: { marginTop: 8, color: subtext, fontSize: 12 },
 
     topActions: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
 
@@ -505,30 +485,31 @@ function styles(theme) {
       border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
       background: dark
         ? "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))"
-        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.85))",
+        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.86))",
       color: dark ? text : "#0f172a",
       cursor: "pointer",
       fontWeight: 950,
+      boxShadow: dark ? "none" : "0 8px 16px rgba(15,23,42,0.06)",
     },
 
     btnPrimary: {
       padding: "12px 16px",
       borderRadius: 16,
-      border: `1px solid ${dark ? "rgba(212,175,55,0.30)" : "rgba(15,23,42,0.14)"}`,
+      border: `1px solid ${dark ? "rgba(212,175,55,0.30)" : "rgba(99,102,241,0.20)"}`,
       background: dark
         ? "linear-gradient(135deg, rgba(212,175,55,0.95), rgba(99,102,241,0.85))"
         : "linear-gradient(135deg, rgba(99,102,241,0.92), rgba(212,175,55,0.88))",
-      color: "#0B1E33",
+      color: dark ? "#0B1E33" : "#0f172a",
       cursor: "pointer",
       fontWeight: 950,
-      boxShadow: "0 16px 36px rgba(212,175,55,0.18)",
+      boxShadow: dark ? "0 16px 36px rgba(212,175,55,0.18)" : "0 16px 30px rgba(99,102,241,0.14)",
     },
 
     pill: {
       padding: "7px 10px",
       borderRadius: 999,
       border: `1px solid ${dark ? GOLD_SOFT : border}`,
-      background: dark ? "rgba(212,175,55,0.10)" : "rgba(15,23,42,0.05)",
+      background: dark ? "rgba(212,175,55,0.10)" : "rgba(255,255,255,0.86)",
       fontSize: 12,
       fontWeight: 950,
       color: dark ? "#FDE68A" : "#0f172a",
@@ -541,7 +522,7 @@ function styles(theme) {
       padding: "10px 12px",
       borderRadius: 999,
       border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
-      background: dark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
+      background: dark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.70)",
       color: subtext,
       cursor: "pointer",
       fontWeight: 950,
@@ -552,7 +533,7 @@ function styles(theme) {
       border: `1px solid ${dark ? GOLD_SOFT : "rgba(99,102,241,0.22)"}`,
       background: dark
         ? "linear-gradient(135deg, rgba(212,175,55,0.16), rgba(255,255,255,0.06))"
-        : "linear-gradient(135deg, rgba(99,102,241,0.10), rgba(212,175,55,0.08))",
+        : "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(212,175,55,0.10))",
       color: text,
       cursor: "pointer",
       fontWeight: 950,
@@ -564,7 +545,7 @@ function styles(theme) {
       background: cardBg,
       backdropFilter: "blur(10px)",
       padding: 16,
-      boxShadow: dark ? "0 14px 40px rgba(0,0,0,0.28)" : "0 14px 40px rgba(15,23,42,0.07)",
+      boxShadow: shadow,
     },
 
     cardHeader: { marginBottom: 12 },
@@ -590,7 +571,7 @@ function styles(theme) {
       padding: "10px 12px",
       borderRadius: 12,
       border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
-      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.92)",
+      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.96)",
       color: dark ? text : "#0f172a",
       outline: "none",
       width: "100%",
