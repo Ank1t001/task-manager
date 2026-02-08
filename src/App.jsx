@@ -91,14 +91,14 @@ function goToLogout() {
   window.location.href = "/cdn-cgi/access/logout";
 }
 
-function TabButton({ active, onClick, children, theme }) {
+function TabButton({ active, onClick, children, s }) {
   return (
     <button
       onClick={onClick}
       type="button"
       style={{
-        ...styles(theme).tab,
-        ...(active ? styles(theme).tabActive : {}),
+        ...s.tab,
+        ...(active ? s.tabActive : {}),
       }}
     >
       {children}
@@ -108,7 +108,6 @@ function TabButton({ active, onClick, children, theme }) {
 
 export default function App() {
   const [tasks, setTasks] = useState(() => loadTasks());
-  const [editingId, setEditingId] = useState(null);
 
   const [tab, setTab] = useState("dashboard"); // dashboard | tasks
   const [tasksView, setTasksView] = useState("table"); // table | kanban
@@ -119,20 +118,17 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortDue, setSortDue] = useState("asc");
 
-  // ✅ Theme: "dark" or "light"
+  // Light/Dark (kept) but now both are “brand”
   const [theme, setTheme] = useState(() => localStorage.getItem("dtt_theme") || "dark");
 
   // Identity
   const [email, setEmail] = useState("");
 
-  // ✅ New Task modal
+  // New Task modal
   const [newTaskOpen, setNewTaskOpen] = useState(false);
 
   useEffect(() => saveTasks(tasks), [tasks]);
-
-  useEffect(() => {
-    localStorage.setItem("dtt_theme", theme);
-  }, [theme]);
+  useEffect(() => localStorage.setItem("dtt_theme", theme), [theme]);
 
   useEffect(() => {
     fetch("/api/me")
@@ -205,21 +201,29 @@ export default function App() {
     if (!allowed) return;
 
     setTasks((prev) => prev.filter((t) => t.id !== id));
-    if (editingId === id) setEditingId(null);
   }
 
   const s = styles(theme);
 
   return (
     <div style={s.page}>
+      {/* Soft background “grid” to reduce empty-screen feel */}
+      <div style={s.bgGrid} />
+
       <div style={s.shell}>
         {/* Header */}
         <div style={s.topBar}>
           <div>
-            <div style={s.title}>Digital Team Task Tracker</div>
+            <div style={s.titleRow}>
+              <div style={s.brandDot} />
+              <div style={s.title}>Digital Team Task Tracker</div>
+              <div style={s.goldPill}>Navy • Gold</div>
+            </div>
+
             <div style={s.subtitle}>
               Public view • Team edits their own tasks • Admin (Ankit) manages all.
             </div>
+
             <div style={s.identity}>
               {email ? (
                 <>
@@ -235,23 +239,23 @@ export default function App() {
             <button
               type="button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              style={s.btnSecondary}
+              style={s.btnSoft}
               title="Toggle theme"
             >
               {theme === "dark" ? "Light Mode" : "Dark Mode"}
             </button>
 
             {!email ? (
-              <button onClick={goToLogin} style={s.btnSecondary}>
+              <button onClick={goToLogin} style={s.btnSoft}>
                 Login
               </button>
             ) : (
-              <button onClick={goToLogout} style={s.btnSecondary}>
+              <button onClick={goToLogout} style={s.btnSoft}>
                 Logout
               </button>
             )}
 
-            <button onClick={() => downloadCSV(filteredTasks)} style={s.btnSecondary}>
+            <button onClick={() => downloadCSV(filteredTasks)} style={s.btnSoft}>
               Export CSV
             </button>
 
@@ -262,10 +266,10 @@ export default function App() {
         {/* Tabs row + New Task */}
         <div style={s.tabsTopRow}>
           <div style={s.tabsRow}>
-            <TabButton theme={theme} active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
+            <TabButton s={s} active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
               Dashboard
             </TabButton>
-            <TabButton theme={theme} active={tab === "tasks"} onClick={() => setTab("tasks")}>
+            <TabButton s={s} active={tab === "tasks"} onClick={() => setTab("tasks")}>
               Tasks
             </TabButton>
           </div>
@@ -288,9 +292,9 @@ export default function App() {
 
             <div style={s.card}>
               <div style={s.cardHeader}>
-                <div style={s.cardTitle}>Overview</div>
+                <div style={s.cardTitle}>Quick Tips</div>
                 <div style={s.cardHint}>
-                  Use <strong>New Task</strong> to create tasks. Use the <strong>Tasks</strong> tab to manage.
+                  Use <strong>New Task</strong> to create tasks. Manage progress via <strong>sub-tasks</strong>.
                 </div>
               </div>
             </div>
@@ -332,25 +336,19 @@ export default function App() {
 
                 <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={s.input}>
                   {owners.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
+                    <option key={o} value={o}>{o}</option>
                   ))}
                 </select>
 
                 <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={s.input}>
                   {sections.map((sec) => (
-                    <option key={sec} value={sec}>
-                      {sec}
-                    </option>
+                    <option key={sec} value={sec}>{sec}</option>
                   ))}
                 </select>
 
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={s.input}>
                   {["All", "To Do", "In Progress", "Blocked", "Done"].map((st) => (
-                    <option key={st} value={st}>
-                      {st}
-                    </option>
+                    <option key={st} value={st}>{st}</option>
                   ))}
                 </select>
 
@@ -392,7 +390,7 @@ export default function App() {
           subtitle="Fill details and create a task."
           onClose={() => setNewTaskOpen(false)}
           footer={
-            <button style={s.btnSecondary} onClick={() => setNewTaskOpen(false)}>
+            <button style={s.btnSoft} onClick={() => setNewTaskOpen(false)}>
               Close
             </button>
           }
@@ -400,7 +398,6 @@ export default function App() {
           <TaskForm
             initialTask={null}
             canEdit={Boolean(email)}
-            isAdmin={isAdmin}
             onCancel={() => setNewTaskOpen(false)}
             onSubmit={(task) => {
               addTask(task);
@@ -418,22 +415,55 @@ export default function App() {
 function styles(theme) {
   const dark = theme === "dark";
 
-  const bg = dark
-    ? "radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.22) 0%, transparent 60%), radial-gradient(1100px 600px at 80% 0%, rgba(168,85,247,0.18) 0%, transparent 55%), #070B14"
-    : "radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.14) 0%, transparent 60%), radial-gradient(1100px 600px at 80% 0%, rgba(168,85,247,0.12) 0%, transparent 55%), #F6F8FC";
+  const NAVY_900 = "#071321";
+  const NAVY_800 = "#0B1E33";
+  const NAVY_700 = "#102A46";
+  const GOLD = "#D4AF37";
+  const GOLD_SOFT = "rgba(212,175,55,0.22)";
 
-  const cardBg = dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.04)";
-  const border = dark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.12)";
+  const bg = dark
+    ? `radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.18) 0%, transparent 60%),
+       radial-gradient(1100px 600px at 80% 0%, rgba(212,175,55,0.12) 0%, transparent 55%),
+       linear-gradient(180deg, ${NAVY_800}, ${NAVY_900})`
+    : `radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.12) 0%, transparent 60%),
+       radial-gradient(1100px 600px at 80% 0%, rgba(212,175,55,0.10) 0%, transparent 55%),
+       #F7FAFF`;
+
   const text = dark ? "#EAF0FF" : "#0f172a";
   const subtext = dark ? "rgba(226,232,240,0.78)" : "rgba(15,23,42,0.68)";
 
+  const border = dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.12)";
+  const cardBg = dark
+    ? "linear-gradient(180deg, rgba(16,42,70,0.55), rgba(7,19,33,0.55))"
+    : "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72))";
+
   return {
-    page: { minHeight: "100vh", background: bg, padding: 16, color: text, fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" },
-    shell: { width: "100%", maxWidth: 1320, margin: "0 auto", display: "grid", gap: 14 },
+    page: {
+      minHeight: "100vh",
+      background: bg,
+      padding: 16,
+      color: text,
+      fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial",
+      position: "relative",
+    },
+
+    bgGrid: {
+      position: "fixed",
+      inset: 0,
+      backgroundImage: dark
+        ? "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)"
+        : "linear-gradient(rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.06) 1px, transparent 1px)",
+      backgroundSize: "60px 60px",
+      maskImage: "radial-gradient(closest-side, rgba(0,0,0,0.55), transparent 70%)",
+      pointerEvents: "none",
+      opacity: dark ? 0.22 : 0.18,
+    },
+
+    shell: { width: "100%", maxWidth: 1320, margin: "0 auto", display: "grid", gap: 14, position: "relative" },
 
     topBar: {
       borderRadius: 18,
-      border: `1px solid ${border}`,
+      border: `1px solid ${dark ? GOLD_SOFT : border}`,
       background: cardBg,
       backdropFilter: "blur(10px)",
       padding: "16px 16px",
@@ -442,40 +472,66 @@ function styles(theme) {
       alignItems: "center",
       gap: 14,
       flexWrap: "wrap",
+      boxShadow: dark ? "0 18px 50px rgba(0,0,0,0.35)" : "0 18px 50px rgba(15,23,42,0.08)",
+    },
+
+    titleRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+    brandDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 999,
+      background: GOLD,
+      boxShadow: "0 0 0 4px rgba(212,175,55,0.12)",
     },
     title: { fontSize: 22, fontWeight: 950, color: text },
+    goldPill: {
+      padding: "6px 10px",
+      borderRadius: 999,
+      border: `1px solid ${GOLD_SOFT}`,
+      background: dark ? "rgba(212,175,55,0.10)" : "rgba(212,175,55,0.12)",
+      color: dark ? "#FDE68A" : "#7c5f13",
+      fontWeight: 950,
+      fontSize: 12,
+    },
+
     subtitle: { marginTop: 6, color: subtext, fontSize: 13 },
     identity: { marginTop: 6, color: subtext, fontSize: 12 },
 
     topActions: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-    btnSecondary: {
+
+    btnSoft: {
       padding: "10px 12px",
       borderRadius: 12,
-      border: `1px solid ${border}`,
-      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.85)",
+      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
+      background: dark
+        ? "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))"
+        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.85))",
       color: dark ? text : "#0f172a",
       cursor: "pointer",
-      fontWeight: 900,
+      fontWeight: 950,
     },
+
     btnPrimary: {
       padding: "12px 16px",
       borderRadius: 16,
-      border: `1px solid ${dark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.14)"}`,
-      background: "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(168,85,247,0.95))",
-      color: "white",
+      border: `1px solid ${dark ? "rgba(212,175,55,0.30)" : "rgba(15,23,42,0.14)"}`,
+      background: dark
+        ? "linear-gradient(135deg, rgba(212,175,55,0.95), rgba(99,102,241,0.85))"
+        : "linear-gradient(135deg, rgba(99,102,241,0.92), rgba(212,175,55,0.88))",
+      color: "#0B1E33",
       cursor: "pointer",
       fontWeight: 950,
-      boxShadow: dark ? "0 12px 30px rgba(99,102,241,0.25)" : "0 12px 30px rgba(99,102,241,0.20)",
-      opacity: 1,
+      boxShadow: "0 16px 36px rgba(212,175,55,0.18)",
     },
+
     pill: {
       padding: "7px 10px",
       borderRadius: 999,
-      border: `1px solid ${border}`,
-      background: cardBg,
+      border: `1px solid ${dark ? GOLD_SOFT : border}`,
+      background: dark ? "rgba(212,175,55,0.10)" : "rgba(15,23,42,0.05)",
       fontSize: 12,
-      fontWeight: 900,
-      color: text,
+      fontWeight: 950,
+      color: dark ? "#FDE68A" : "#0f172a",
     },
 
     tabsTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
@@ -484,17 +540,19 @@ function styles(theme) {
     tab: {
       padding: "10px 12px",
       borderRadius: 999,
-      border: `1px solid ${border}`,
-      background: cardBg,
+      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
+      background: dark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
       color: subtext,
       cursor: "pointer",
-      fontWeight: 900,
+      fontWeight: 950,
     },
     tabActive: {
       padding: "10px 12px",
       borderRadius: 999,
-      border: `1px solid ${dark ? "rgba(255,255,255,0.22)" : "rgba(15,23,42,0.18)"}`,
-      background: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.06)",
+      border: `1px solid ${dark ? GOLD_SOFT : "rgba(99,102,241,0.22)"}`,
+      background: dark
+        ? "linear-gradient(135deg, rgba(212,175,55,0.16), rgba(255,255,255,0.06))"
+        : "linear-gradient(135deg, rgba(99,102,241,0.10), rgba(212,175,55,0.08))",
       color: text,
       cursor: "pointer",
       fontWeight: 950,
@@ -502,11 +560,13 @@ function styles(theme) {
 
     card: {
       borderRadius: 18,
-      border: `1px solid ${border}`,
+      border: `1px solid ${dark ? GOLD_SOFT : border}`,
       background: cardBg,
       backdropFilter: "blur(10px)",
       padding: 16,
+      boxShadow: dark ? "0 14px 40px rgba(0,0,0,0.28)" : "0 14px 40px rgba(15,23,42,0.07)",
     },
+
     cardHeader: { marginBottom: 12 },
     cardHeaderRow: {
       display: "flex",
@@ -525,10 +585,11 @@ function styles(theme) {
       gap: 10,
       marginBottom: 12,
     },
+
     input: {
       padding: "10px 12px",
       borderRadius: 12,
-      border: `1px solid ${border}`,
+      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
       background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.92)",
       color: dark ? text : "#0f172a",
       outline: "none",
