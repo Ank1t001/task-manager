@@ -4,9 +4,7 @@ import TaskTable from "./components/TaskTable";
 import MiniDashboard from "./components/MiniDashboard";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-
-// Admin identity (email from Cloudflare Access)
-const ADMIN_EMAIL = "ankit@digijabber.com";
+const ADMIN_EMAIL = "ankit@digijabber.com"; // ✅ set your admin email here
 
 function loadTasks() {
   try {
@@ -84,6 +82,16 @@ function downloadCSV(tasks) {
   URL.revokeObjectURL(url);
 }
 
+/** ✅ Login triggers Cloudflare Access because /api/* is protected */
+function goToLogin() {
+  window.location.href = "/api/login";
+}
+
+/** ✅ Logout endpoint for Cloudflare Access */
+function goToLogout() {
+  window.location.href = "/cdn-cgi/access/logout";
+}
+
 export default function App() {
   const [tasks, setTasks] = useState(() => loadTasks());
   const [editingId, setEditingId] = useState(null);
@@ -116,8 +124,6 @@ export default function App() {
   // Team member can edit ONLY if logged in (email exists) and task owner matches their name or email
   function canEditTask(task) {
     if (!email) return false; // public viewer
-    // Your "Owner" field currently uses names (Ankit/Sheel/etc).
-    // We map by checking if email starts with owner name.
     const ownerName = String(task?.owner || "").toLowerCase();
     const emailUser = email.split("@")[0]?.toLowerCase() || "";
     return ownerName && emailUser && emailUser.includes(ownerName);
@@ -199,17 +205,35 @@ export default function App() {
         <div>
           <h1 style={{ margin: 0, fontSize: 22 }}>Digital Team Task Tracker</h1>
           <div style={{ color: "#6b7280", marginTop: 6, fontSize: 13 }}>
-            Public view • Team edits their own tasks • Admin (Ankit) can manage all.
+            Public view • Team edits their own tasks • Admin (Ankit) manages all.
           </div>
           <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-            {email ? <>Signed in: <strong>{email}</strong> ({isAdmin ? "Admin" : "Team"})</> : <>Viewer mode (not signed in)</>}
+            {email ? (
+              <>
+                Signed in: <strong>{email}</strong> ({isAdmin ? "Admin" : "Team"})
+              </>
+            ) : (
+              <>Viewer mode (not signed in)</>
+            )}
           </div>
         </div>
 
+        {/* ✅ LOGIN / LOGOUT BUTTONS ADDED HERE */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {!email ? (
+            <button onClick={goToLogin} style={styles.secondaryBtn}>
+              Login
+            </button>
+          ) : (
+            <button onClick={goToLogout} style={styles.secondaryBtn}>
+              Logout
+            </button>
+          )}
+
           <button onClick={() => downloadCSV(filteredTasks)} style={styles.secondaryBtn}>
             Export CSV
           </button>
+
           <div style={styles.pill}>{filteredTasks.length} tasks</div>
         </div>
       </div>
