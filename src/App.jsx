@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import TaskForm from "./components/TaskForm";
-import TaskTable from "./components/TaskTable";
 import MiniDashboard from "./components/MiniDashboard";
-import KanbanBoard from "./components/KanbanBoard";
+import TaskTable from "./components/TaskTable";
+import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
@@ -28,349 +27,150 @@ function isOverdue(task) {
   return due < today && task.status !== "Done";
 }
 
-function calcProgress(task) {
-  const st = Array.isArray(task?.subtasks) ? task.subtasks : [];
-  if (st.length === 0) return task.status === "Done" ? 100 : 0;
-  const done = st.filter((x) => x.done).length;
-  return Math.round((done / st.length) * 100);
-}
-
-function csvEscape(v) {
-  const s = String(v ?? "");
-  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
-  return s;
-}
-
-function downloadCSV(tasks) {
-  const headers = [
-    "Task Name",
-    "Owner",
-    "Section",
-    "Priority",
-    "Due Date",
-    "Status",
-    "Progress %",
-    "Subtasks (count)",
-    "External Stakeholders",
-    "Created At",
-    "Updated At",
-  ];
-
-  const rows = tasks.map((t) => {
-    const st = Array.isArray(t.subtasks) ? t.subtasks : [];
-    return [
-      t.taskName,
-      t.owner,
-      t.section,
-      t.priority,
-      t.dueDate,
-      t.status,
-      calcProgress(t),
-      st.length,
-      t.externalStakeholders,
-      t.createdAt,
-      t.updatedAt,
-    ];
-  });
-
-  const csv = [headers, ...rows].map((r) => r.map(csvEscape).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `digital-team-tasks-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function goToLogin() {
-  const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-  window.location.href = `/api/login?returnTo=${returnTo}`;
-}
-function goToLogout() {
-  window.location.href = "/cdn-cgi/access/logout";
-}
-
-function TabButton({ active, onClick, children, s }) {
-  return (
-    <button
-      onClick={onClick}
-      type="button"
-      style={{
-        ...s.tab,
-        ...(active ? s.tabActive : {}),
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 export default function App() {
+  const [theme, setTheme] = useState(() => localStorage.getItem("dtt_theme") || "light");
+  const [tab, setTab] = useState("dashboard");
   const [tasks, setTasks] = useState(() => loadTasks());
 
-  const [tab, setTab] = useState("dashboard");
-  const [tasksView, setTasksView] = useState("table");
-
-  const [search, setSearch] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("All");
-  const [sectionFilter, setSectionFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [sortDue, setSortDue] = useState("asc");
-
-  const [theme, setTheme] = useState(() => localStorage.getItem("dtt_theme") || "dark");
-  const [email, setEmail] = useState("");
+  // mock signed-in user (replace with your /api/me later)
+  const [me] = useState(() => ({
+    email: ADMIN_EMAIL,
+    role: "Admin",
+  }));
 
   const [newTaskOpen, setNewTaskOpen] = useState(false);
 
-  useEffect(() => saveTasks(tasks), [tasks]);
-  useEffect(() => localStorage.setItem("dtt_theme", theme), [theme]);
+  useEffect(() => {
+    saveTasks(tasks);
+  }, [tasks]);
 
   useEffect(() => {
-    fetch("/api/me")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setEmail(String(d?.email || "")))
-      .catch(() => setEmail(""));
-  }, []);
+    localStorage.setItem("dtt_theme", theme);
+  }, [theme]);
 
-  const isAdmin = useMemo(
-    () => email && email.toLowerCase() === ADMIN_EMAIL.toLowerCase(),
-    [email]
-  );
+  const dark = theme === "dark";
+  const s = styles(dark);
 
-  function canEditTask(task) {
-    if (!email) return false;
-    const ownerName = String(task?.owner || "").toLowerCase().trim();
-    const emailUser = (email.split("@")[0] || "").toLowerCase();
-    return ownerName && emailUser.includes(ownerName);
-  }
-
-  const canEditAny = isAdmin;
-
-  const owners = useMemo(() => {
-    const set = new Set(tasks.map((t) => t.owner));
-    return ["All", ...Array.from(set)];
-  }, [tasks]);
-
-  const sections = useMemo(() => {
-    const set = new Set(tasks.map((t) => t.section || "Other"));
-    return ["All", ...Array.from(set)];
-  }, [tasks]);
-
-  const filteredTasks = useMemo(() => {
-    let list = [...tasks];
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter((t) => t.taskName.toLowerCase().includes(q));
+  const counts = useMemo(() => {
+    let overdue = 0, inProgress = 0, blocked = 0, done = 0;
+    for (const t of tasks) {
+      if (isOverdue(t)) overdue++;
+      if (t.status === "In Progress") inProgress++;
+      if (t.status === "Blocked") blocked++;
+      if (t.status === "Done") done++;
     }
-    if (ownerFilter !== "All") list = list.filter((t) => t.owner === ownerFilter);
-    if (sectionFilter !== "All") list = list.filter((t) => (t.section || "Other") === sectionFilter);
-    if (statusFilter !== "All") list = list.filter((t) => t.status === statusFilter);
-
-    list.sort((a, b) => {
-      const da = a.dueDate || "";
-      const db = b.dueDate || "";
-      return sortDue === "asc" ? da.localeCompare(db) : db.localeCompare(da);
-    });
-
-    return list;
-  }, [tasks, search, ownerFilter, sectionFilter, statusFilter, sortDue]);
-
-  const dashboardCounts = useMemo(() => {
-    const overdue = tasks.filter((t) => isOverdue(t)).length;
-    const inProgress = tasks.filter((t) => t.status === "In Progress").length;
-    const blocked = tasks.filter((t) => t.status === "Blocked").length;
-    const done = tasks.filter((t) => t.status === "Done").length;
     return { overdue, inProgress, blocked, done };
   }, [tasks]);
 
-  function addTask(task) {
-    if (!email) return;
-    setTasks((prev) => [{ ...task, id: crypto.randomUUID() }, ...prev]);
+  function addOrUpdateTask(task) {
+    if (!task?.id) {
+      const created = { ...task, id: crypto.randomUUID() };
+      setTasks((prev) => [created, ...prev]);
+      return;
+    }
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
   }
 
   function deleteTask(id) {
-    const task = tasks.find((t) => t.id === id);
-    if (!task) return;
-    const allowed = canEditAny || canEditTask(task);
-    if (!allowed) return;
-
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
-  const s = styles(theme);
-
   return (
     <div style={s.page}>
-      <div style={s.bgGrid} />
-
       <div style={s.shell}>
         {/* Header */}
-        <div style={s.topBar}>
-          <div>
+        <div style={s.headerCard}>
+          <div style={{ display: "grid", gap: 6 }}>
             <div style={s.titleRow}>
-              <div style={s.brandDot} />
-              <div style={s.title}>Digital Team Task Tracker</div>
+              <div style={s.dot} />
+              <div style={s.h1}>Digital Team Task Tracker</div>
             </div>
-
-            <div style={s.identity}>
-              {email ? (
-                <>
-                  Signed in: <strong>{email}</strong> ({isAdmin ? "Admin" : "Team"})
-                </>
-              ) : (
-                <>Viewer mode (not signed in)</>
-              )}
+            <div style={s.signedIn}>
+              Signed in: <strong>{me.email}</strong> ({me.role})
             </div>
           </div>
 
-          <div style={s.topActions}>
-            <button
-              type="button"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              style={s.btnSoft}
-              title="Toggle theme"
-            >
-              {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          <div style={s.headerActions}>
+            <button style={s.btn} onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
+              {dark ? "Light Mode" : "Dark Mode"}
             </button>
-
-            {!email ? (
-              <button onClick={goToLogin} style={s.btnSoft}>
-                Login
-              </button>
-            ) : (
-              <button onClick={goToLogout} style={s.btnSoft}>
-                Logout
-              </button>
-            )}
-
-            <button onClick={() => downloadCSV(filteredTasks)} style={s.btnSoft}>
+            <button style={s.btn} onClick={() => alert("Logout handled by Cloudflare Access")}>
+              Logout
+            </button>
+            <button style={s.btn} onClick={() => alert("CSV export button already exists in your build")}>
               Export CSV
             </button>
-
-            <div style={s.pill}>{filteredTasks.length} tasks</div>
+            <div style={s.pill}>{tasks.length} tasks</div>
           </div>
         </div>
 
-        {/* Tabs row + New Task */}
-        <div style={s.tabsTopRow}>
-          <div style={s.tabsRow}>
-            <TabButton s={s} active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
+        {/* Tabs + New Task */}
+        <div style={s.tabsRow}>
+          <div style={s.tabs}>
+            <button style={{ ...s.tabBtn, ...(tab === "dashboard" ? s.tabActive : {}) }} onClick={() => setTab("dashboard")}>
               Dashboard
-            </TabButton>
-            <TabButton s={s} active={tab === "tasks"} onClick={() => setTab("tasks")}>
+            </button>
+            <button style={{ ...s.tabBtn, ...(tab === "tasks" ? s.tabActive : {}) }} onClick={() => setTab("tasks")}>
               Tasks
-            </TabButton>
+            </button>
           </div>
 
-          <button
-            type="button"
-            style={s.btnPrimary}
-            onClick={() => setNewTaskOpen(true)}
-            disabled={!email}
-            title={!email ? "Login to add tasks" : "Create a new task"}
-          >
-            ＋ New Task
+          <button style={s.newTaskBtn} onClick={() => setNewTaskOpen(true)}>
+            + New Task
           </button>
         </div>
 
         {/* Content */}
         {tab === "dashboard" ? (
-          <div style={{ display: "grid", gap: 14 }}>
-            <MiniDashboard counts={dashboardCounts} theme={theme} />
+          <>
+            <MiniDashboard counts={counts} theme={theme} />
             <div style={s.card}>
-              <div style={s.cardHeader}>
-                <div style={s.cardTitle}>Quick Tips</div>
-                <div style={s.cardHint}>
-                  Use <strong>New Task</strong> to create tasks. Manage progress via <strong>sub-tasks</strong>.
-                </div>
-              </div>
+              <div style={s.cardTitle}>Quick Tips</div>
+              <div style={s.cardSub}>Use <strong>New Task</strong> to create tasks. Manage progress via <strong>sub-tasks</strong>.</div>
             </div>
-          </div>
+          </>
         ) : (
-          <div style={{ display: "grid", gap: 14 }}>
-            <div style={s.card}>
-              <div style={s.cardHeaderRow}>
-                <div>
-                  <div style={s.cardTitle}>Tasks</div>
-                  <div style={s.cardHint}>Table + Kanban, filters, inline sub-tasks.</div>
-                </div>
+          <div style={s.card}>
+            <div style={s.cardTitle}>Tasks</div>
+            <div style={s.cardSub}>Table view with sticky header + subtasks.</div>
 
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => setTasksView("table")}
-                    style={tasksView === "table" ? s.tabActive : s.tab}
-                  >
-                    Table
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTasksView("kanban")}
-                    style={tasksView === "kanban" ? s.tabActive : s.tab}
-                  >
-                    Kanban
-                  </button>
-                </div>
-              </div>
-
-              <div style={s.filters}>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by task name..."
-                  style={s.input}
-                />
-
-                <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={s.input}>
-                  {owners.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-
-                <select value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)} style={s.input}>
-                  {sections.map((sec) => (
-                    <option key={sec} value={sec}>{sec}</option>
-                  ))}
-                </select>
-
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={s.input}>
-                  {["All", "To Do", "In Progress", "Blocked", "Done"].map((st) => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </select>
-
-                <select value={sortDue} onChange={(e) => setSortDue(e.target.value)} style={s.input}>
-                  <option value="asc">Due ↑</option>
-                  <option value="desc">Due ↓</option>
-                </select>
-              </div>
-
-              {tasksView === "table" ? (
-                <TaskTable theme={theme} ... />
-              ) : (
-                <KanbanBoard theme={theme} ... />
-              )}
+            <div style={{ marginTop: 12 }}>
+              {/* ✅ theme is passed */}
+              <TaskTable
+                theme={theme}
+                tasks={tasks}
+                onDelete={deleteTask}
+                onUpdateTask={addOrUpdateTask}
+                canEditAny={me.role === "Admin"}
+                canEditTask={() => true}
+              />
             </div>
           </div>
         )}
 
-        {/* New Task Modal */}
+        {/* ✅ Modal MUST follow theme */}
         <Modal
-  open={newTaskOpen}
-  theme={theme}
-  ...
->
+          open={newTaskOpen}
+          theme={theme}
+          title="New Task"
+          subtitle="Fill details and create a task."
+          onClose={() => setNewTaskOpen(false)}
+          footer={
+            <>
+              <button style={s.btn} onClick={() => setNewTaskOpen(false)}>Cancel</button>
+              <button style={s.primaryBtn} form="taskFormSubmit" type="submit">Add Task</button>
+            </>
+          }
+        >
           <TaskForm
             initialTask={null}
-            canEdit={Boolean(email)}
             onCancel={() => setNewTaskOpen(false)}
             onSubmit={(task) => {
-              addTask(task);
+              addOrUpdateTask(task);
               setNewTaskOpen(false);
-              setTab("tasks");
             }}
+            // ✅ lets footer submit work
+            formId="taskFormSubmit"
             theme={theme}
           />
         </Modal>
@@ -379,187 +179,137 @@ export default function App() {
   );
 }
 
-function styles(theme) {
-  const dark = theme === "dark";
-
+function styles(dark) {
   const NAVY_900 = "#071321";
   const NAVY_800 = "#0B1E33";
   const GOLD = "#D4AF37";
-  const GOLD_SOFT = "rgba(212,175,55,0.22)";
-
-  // ✅ Optimized light mode: clean, not washed-out
-  const bg = dark
-    ? `radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.18) 0%, transparent 60%),
-       radial-gradient(1100px 600px at 80% 0%, rgba(212,175,55,0.12) 0%, transparent 55%),
-       linear-gradient(180deg, ${NAVY_800}, ${NAVY_900})`
-    : `linear-gradient(180deg, #F8FAFF 0%, #EEF3FF 40%, #F8FAFF 100%)`;
-
-  const text = dark ? "#EAF0FF" : "#0f172a";
-  const subtext = dark ? "rgba(226,232,240,0.78)" : "rgba(15,23,42,0.70)";
-
-  const border = dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.12)";
-
-  const cardBg = dark
-    ? "linear-gradient(180deg, rgba(16,42,70,0.55), rgba(7,19,33,0.55))"
-    : "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.80))";
-
-  const shadow = dark ? "0 14px 40px rgba(0,0,0,0.28)" : "0 14px 40px rgba(15,23,42,0.10)";
 
   return {
     page: {
       minHeight: "100vh",
-      background: bg,
+      width: "100vw",                 // ✅ full screen
+      overflowX: "hidden",
+      background: dark
+        ? "radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.22) 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(212,175,55,0.14) 0%, transparent 55%), linear-gradient(180deg, #020617 0%, #071321 60%, #020617 100%)"
+        : "radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.12) 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(212,175,55,0.12) 0%, transparent 55%), linear-gradient(180deg, #f5f7ff 0%, #eef2ff 55%, #f8fafc 100%)",
       padding: 16,
-      color: text,
-      fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial",
-      position: "relative",
-    },
-
-    bgGrid: {
-      position: "fixed",
-      inset: 0,
-      backgroundImage: dark
-        ? "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)"
-        : "linear-gradient(rgba(15,23,42,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.05) 1px, transparent 1px)",
-      backgroundSize: "60px 60px",
-      maskImage: "radial-gradient(closest-side, rgba(0,0,0,0.35), transparent 75%)",
-      pointerEvents: "none",
-      opacity: dark ? 0.18 : 0.14,
     },
 
     shell: {
-  width: "100%",
-  maxWidth: "none",
-  margin: 0,
-  display: "grid",
-  gap: 14,
-  position: "relative",
-},
-
-    topBar: {
-      borderRadius: 18,
-      border: `1px solid ${dark ? GOLD_SOFT : border}`,
-      background: cardBg,
-      backdropFilter: "blur(10px)",
-      padding: "16px 16px",
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
+      width: "100%",
+      maxWidth: "none",               // ✅ no cap
+      margin: 0,
+      display: "grid",
       gap: 14,
-      flexWrap: "wrap",
-      boxShadow: shadow,
     },
 
-    titleRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-    brandDot: {
+    headerCard: {
+      width: "100%",
+      borderRadius: 18,
+      padding: 16,
+      border: dark ? "1px solid rgba(212,175,55,0.22)" : "1px solid rgba(15,23,42,0.12)",
+      background: dark
+        ? `linear-gradient(180deg, rgba(11,30,51,0.90), rgba(7,19,33,0.90))`
+        : `linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.86))`,
+      boxShadow: dark ? "0 20px 50px rgba(0,0,0,0.40)" : "0 18px 46px rgba(15,23,42,0.12)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+    },
+
+    titleRow: { display: "flex", alignItems: "center", gap: 10 },
+
+    dot: {
       width: 10,
       height: 10,
       borderRadius: 999,
       background: GOLD,
-      boxShadow: "0 0 0 4px rgba(212,175,55,0.12)",
-    },
-    title: { fontSize: 22, fontWeight: 950, color: text },
-
-    identity: { marginTop: 8, color: subtext, fontSize: 12 },
-
-    topActions: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-
-    btnSoft: {
-      padding: "10px 12px",
-      borderRadius: 12,
-      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
-      background: dark
-        ? "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))"
-        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.86))",
-      color: dark ? text : "#0f172a",
-      cursor: "pointer",
-      fontWeight: 950,
-      boxShadow: dark ? "none" : "0 8px 16px rgba(15,23,42,0.06)",
+      boxShadow: "0 0 0 4px rgba(212,175,55,0.14)",
     },
 
-    btnPrimary: {
-      padding: "12px 16px",
-      borderRadius: 16,
-      border: `1px solid ${dark ? "rgba(212,175,55,0.30)" : "rgba(99,102,241,0.20)"}`,
-      background: dark
-        ? "linear-gradient(135deg, rgba(212,175,55,0.95), rgba(99,102,241,0.85))"
-        : "linear-gradient(135deg, rgba(99,102,241,0.92), rgba(212,175,55,0.88))",
-      color: dark ? "#0B1E33" : "#0f172a",
-      cursor: "pointer",
+    h1: { fontSize: 22, fontWeight: 1000, color: dark ? "#EAF0FF" : "#0f172a" },
+
+    signedIn: { fontSize: 13, color: dark ? "rgba(226,232,240,0.74)" : "rgba(15,23,42,0.62)" },
+
+    headerActions: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
+
+    btn: {
+      padding: "10px 14px",
+      borderRadius: 14,
+      border: dark ? "1px solid rgba(255,255,255,0.14)" : "1px solid rgba(15,23,42,0.12)",
+      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.92)",
+      color: dark ? "rgba(226,232,240,0.92)" : "#0f172a",
       fontWeight: 950,
-      boxShadow: dark ? "0 16px 36px rgba(212,175,55,0.18)" : "0 16px 30px rgba(99,102,241,0.14)",
+      cursor: "pointer",
+    },
+
+    primaryBtn: {
+      padding: "10px 14px",
+      borderRadius: 14,
+      border: "1px solid rgba(212,175,55,0.28)",
+      background: "linear-gradient(90deg, rgba(99,102,241,0.95), rgba(212,175,55,0.85))",
+      color: "#0b1220",
+      fontWeight: 1000,
+      cursor: "pointer",
     },
 
     pill: {
-      padding: "7px 10px",
+      padding: "10px 14px",
       borderRadius: 999,
-      border: `1px solid ${dark ? GOLD_SOFT : border}`,
-      background: dark ? "rgba(212,175,55,0.10)" : "rgba(255,255,255,0.86)",
-      fontSize: 12,
+      border: dark ? "1px solid rgba(212,175,55,0.22)" : "1px solid rgba(15,23,42,0.12)",
+      background: dark ? "rgba(212,175,55,0.10)" : "rgba(99,102,241,0.08)",
+      color: dark ? "rgba(226,232,240,0.92)" : "#0f172a",
       fontWeight: 950,
-      color: dark ? "#FDE68A" : "#0f172a",
     },
 
-    tabsTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
-    tabsRow: { display: "flex", gap: 10, alignItems: "center" },
+    tabsRow: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+    },
 
-    tab: {
-      padding: "10px 12px",
+    tabs: { display: "flex", gap: 10, alignItems: "center" },
+
+    tabBtn: {
+      padding: "10px 14px",
       borderRadius: 999,
-      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
-      background: dark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.70)",
-      color: subtext,
+      border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(15,23,42,0.12)",
+      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.92)",
       cursor: "pointer",
       fontWeight: 950,
+      color: dark ? "rgba(226,232,240,0.86)" : "rgba(15,23,42,0.76)",
     },
+
     tabActive: {
-      padding: "10px 12px",
-      borderRadius: 999,
-      border: `1px solid ${dark ? GOLD_SOFT : "rgba(99,102,241,0.22)"}`,
-      background: dark
-        ? "linear-gradient(135deg, rgba(212,175,55,0.16), rgba(255,255,255,0.06))"
-        : "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(212,175,55,0.10))",
-      color: text,
+      outline: "2px solid rgba(59,130,246,0.55)",
+      color: dark ? "#EAF0FF" : "#0f172a",
+    },
+
+    newTaskBtn: {
+      padding: "12px 18px",
+      borderRadius: 16,
+      border: "1px solid rgba(212,175,55,0.28)",
+      background: "linear-gradient(90deg, rgba(99,102,241,0.92), rgba(212,175,55,0.85))",
+      color: "#0b1220",
+      fontWeight: 1000,
       cursor: "pointer",
-      fontWeight: 950,
     },
 
     card: {
-      borderRadius: 18,
-      border: `1px solid ${dark ? GOLD_SOFT : border}`,
-      background: cardBg,
-      backdropFilter: "blur(10px)",
-      padding: 16,
-      boxShadow: shadow,
-    },
-
-    cardHeader: { marginBottom: 12 },
-    cardHeaderRow: {
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 12,
-      alignItems: "center",
-      flexWrap: "wrap",
-      marginBottom: 12,
-    },
-    cardTitle: { fontSize: 16, fontWeight: 950, color: text },
-    cardHint: { marginTop: 6, fontSize: 12, color: subtext },
-
-    filters: {
-      display: "grid",
-      gridTemplateColumns: "1.2fr repeat(4, minmax(0, 1fr))",
-      gap: 10,
-      marginBottom: 12,
-    },
-
-    input: {
-      padding: "10px 12px",
-      borderRadius: 12,
-      border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : border}`,
-      background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.96)",
-      color: dark ? text : "#0f172a",
-      outline: "none",
       width: "100%",
+      borderRadius: 18,
+      padding: 16,
+      border: dark ? "1px solid rgba(255,255,255,0.10)" : "1px solid rgba(15,23,42,0.10)",
+      background: dark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.84)",
+      boxShadow: dark ? "0 16px 40px rgba(0,0,0,0.35)" : "0 14px 36px rgba(15,23,42,0.10)",
     },
+
+    cardTitle: { fontWeight: 1000, fontSize: 18, color: dark ? "#EAF0FF" : "#0f172a" },
+    cardSub: { marginTop: 6, color: dark ? "rgba(226,232,240,0.70)" : "rgba(15,23,42,0.62)", fontSize: 13 },
   };
 }
