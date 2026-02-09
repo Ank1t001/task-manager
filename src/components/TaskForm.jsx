@@ -39,11 +39,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Owner</label>
-          <select
-            className="dtt-select"
-            value={form.owner}
-            onChange={(e) => update("owner", e.target.value)}
-          >
+          <select className="dtt-select" value={form.owner} onChange={(e) => update("owner", e.target.value)}>
             {OWNER_OPTIONS.map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -54,11 +50,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
 
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Section</label>
-          <select
-            className="dtt-select"
-            value={form.section}
-            onChange={(e) => update("section", e.target.value)}
-          >
+          <select className="dtt-select" value={form.section} onChange={(e) => update("section", e.target.value)}>
             {SECTION_OPTIONS.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -69,11 +61,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
 
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Priority</label>
-          <select
-            className="dtt-select"
-            value={form.priority}
-            onChange={(e) => update("priority", e.target.value)}
-          >
+          <select className="dtt-select" value={form.priority} onChange={(e) => update("priority", e.target.value)}>
             <option>Low</option>
             <option>Medium</option>
             <option>High</option>
@@ -82,11 +70,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
 
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Status</label>
-          <select
-            className="dtt-select"
-            value={form.status}
-            onChange={(e) => update("status", e.target.value)}
-          >
+          <select className="dtt-select" value={form.status} onChange={(e) => update("status", e.target.value)}>
             <option>To Do</option>
             <option>In Progress</option>
             <option>Blocked</option>

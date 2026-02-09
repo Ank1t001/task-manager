@@ -5,21 +5,11 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-const BUILD_VERSION = "v3-logout-csv-test";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const TEAM_DOMAIN = "equiton.com";
-
-const TEAM = [
-  { name: "Ankit", email: `ankit@${TEAM_DOMAIN}` },
-  { name: "Sheel", email: `sheel@${TEAM_DOMAIN}` },
-  { name: "Aditi", email: `aditi@${TEAM_DOMAIN}` },
-  { name: "Jacob", email: `jacob@${TEAM_DOMAIN}` },
-  { name: "Vanessa", email: `vanessa@${TEAM_DOMAIN}` },
-  { name: "Mandeep", email: `mandeep@${TEAM_DOMAIN}` },
-];
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
+// --- Task migration (fixes old data) ---
 function migrateTask(t) {
   const taskName = t.taskName ?? t.title ?? "";
   const status = t.status === "Open" ? "To Do" : (t.status || "To Do");
@@ -101,12 +91,14 @@ function downloadCSV(filename, rows) {
 
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
+
   URL.revokeObjectURL(url);
 }
 
@@ -117,35 +109,44 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
 
   const [userEmail, setUserEmail] = useState("");
-  const [userName, setUserName] = useState("");
   const [role, setRole] = useState("Member");
+  const [userName, setUserName] = useState("");
+  const BUILD_VERSION = "v4-live-logout-export-auth";
 
+  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  useEffect(() => {
-    // normalize + persist
-    const normalized = tasks.map(migrateTask);
-    saveTasks(normalized);
-
-    // only set state if changed
-    const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
-    if (changed) setTasks(normalized);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // once on mount
-
+  // Save tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
+  // Normalize old tasks ONCE
+  useEffect(() => {
+    const normalized = tasks.map(migrateTask);
+    const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
+    if (changed) {
+      setTasks(normalized);
+      saveTasks(normalized);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Load identity from Cloudflare Access (Pages Function)
   useEffect(() => {
     let alive = true;
 
     async function loadMe() {
       try {
-        const res = await fetch("/api/me", { cache: "no-store" });
+        const res = await fetch("/api/me", {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+
         const data = await res.json();
         const email = normalizeEmail(data?.email);
 
@@ -155,19 +156,12 @@ export default function App() {
 
         const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
         setRole(isAdmin ? "Admin" : "Member");
-
-        // Name mapping:
-        // 1) Match TEAM (equiton.com)
-        // 2) Fallback: admin can still be ankit@digijabber.com
-        const match = TEAM.find((m) => normalizeEmail(m.email) === email);
-        if (match?.name) setUserName(match.name);
-        else if (isAdmin) setUserName("Ankit");
-        else setUserName("Member");
+        setUserName(isAdmin ? "Ankit" : "Member");
       } catch {
         if (!alive) return;
         setUserEmail("");
-        setUserName("");
         setRole("Member");
+        setUserName("");
       }
     }
 
@@ -192,6 +186,7 @@ export default function App() {
   const canEditAny = isAdmin;
   const canEditTask = (task) => {
     if (isAdmin) return true;
+    // if you later map real names, replace userName with that mapping
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
@@ -212,23 +207,21 @@ export default function App() {
     });
   }
 
-  // ✅ WORKING Logout
+  // ✅ REAL Logout (no alert)
   function handleLogout() {
-  alert("Logout clicked ✅");
-  const returnTo = window.location.origin + window.location.pathname;
-  window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
-}
+    const returnTo = window.location.origin + "/";
+    window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
+  }
 
-function handleExportCSV() {
-  alert("Export clicked ✅");
-  const stamp = new Date().toISOString().slice(0, 10);
-  // (keep your downloadCSV call here if it exists)
-}
+  // ✅ REAL Export CSV
+  function handleExportCSV() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`tasks_${stamp}.csv`, tasks);
+  }
 
   return (
     <div className="dtt-page">
       <div className="dtt-shell">
-        {/* HEADER */}
         <div className="dtt-card">
           <div className="dtt-titleRow" style={{ justifyContent: "space-between" }}>
             <div>
@@ -237,15 +230,12 @@ function handleExportCSV() {
                 <div className="dtt-h1">Digital Team Task Tracker</div>
               </div>
               <div className="dtt-muted" style={{ marginTop: 6 }}>
-  Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
-</div>
+                Signed in: {userEmail || "Unknown"} ({role}) • {BUILD_VERSION}
+              </div>
             </div>
 
             <div className="dtt-actions">
-              <button
-                className="dtt-btn"
-                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-              >
+              <button className="dtt-btn" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>
 
@@ -262,7 +252,6 @@ function handleExportCSV() {
           </div>
         </div>
 
-        {/* TABS */}
         <div className="dtt-tabsRow">
           <div className="dtt-tabs">
             <button
@@ -285,7 +274,6 @@ function handleExportCSV() {
           </button>
         </div>
 
-        {/* CONTENT */}
         <div className="dtt-card">
           {tab === "dashboard" && <MiniDashboard counts={counts} theme={theme} />}
 
@@ -301,7 +289,6 @@ function handleExportCSV() {
           )}
         </div>
 
-        {/* MODAL */}
         <Modal
           open={showModal}
           title="Create a new task"
