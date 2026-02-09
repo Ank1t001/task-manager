@@ -18,10 +18,3 @@ body {
   padding: 0;
   min-height: 100vh;
 }
-
-button,
-input,
-select,
-textarea {
-  font-family: inherit;
-}
