@@ -5,6 +5,7 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
+const BUILD_VERSION = "v3-logout-csv-test";
 const ADMIN_EMAIL = "ankit@digijabber.com";
 const TEAM_DOMAIN = "equiton.com";
 
