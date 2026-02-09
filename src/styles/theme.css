@@ -193,3 +193,67 @@ body {
 .dtt-iconBtn:hover {
   filter: brightness(0.98);
 }
+/* =========================
+   QUICK CONTRAST FIX (Dashboard / Cards / Tables)
+   This overrides older "washed out" styles.
+========================= */
+
+/* Make sure text is readable everywhere */
+.app-root,
+.app-root * {
+  color: inherit;
+}
+
+/* Card defaults */
+.card, .panel, .widget, .statCard, .summaryCard,
+.dashboardCard, .miniCard, .kpiCard {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Any headings inside cards */
+.card h1, .card h2, .card h3,
+.panel h1, .panel h2, .panel h3,
+.widget h1, .widget h2, .widget h3,
+.statCard h1, .statCard h2, .statCard h3,
+.summaryCard h1, .summaryCard h2, .summaryCard h3 {
+  color: var(--text) !important;
+}
+
+/* Big KPI numbers often get hard-coded to light colors */
+.card .value, .card .number, .card .count,
+.panel .value, .panel .number, .panel .count,
+.widget .value, .widget .number, .widget .count,
+.statCard .value, .statCard .number, .statCard .count,
+.summaryCard .value, .summaryCard .number, .summaryCard .count {
+  color: var(--text) !important;
+}
+
+/* Muted labels */
+.card .label, .card small,
+.panel .label, .panel small,
+.widget .label, .widget small,
+.statCard .label, .statCard small,
+.summaryCard .label, .summaryCard small {
+  color: var(--muted) !important;
+}
+
+/* Tables readability */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+th, td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
