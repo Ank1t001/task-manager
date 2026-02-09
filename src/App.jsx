@@ -6,8 +6,9 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v7.1.1";
+const BUILD_VERSION = "v7.2.5";
 
+// Email -> Display name mapping (adjust if needed)
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
   "ankit@equiton.com": "Ankit",
@@ -110,15 +111,6 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-// Simple error boundary wrapper (so TaskTable can’t blank the whole screen)
-function Safe({ children, fallback }) {
-  try {
-    return children;
-  } catch {
-    return fallback ?? null;
-  }
-}
-
 export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
   const [tab, setTab] = useState("dashboard");
@@ -139,13 +131,18 @@ export default function App() {
     saveTasks(tasks);
   }, [tasks]);
 
+  // one-time migrate stored tasks
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
-    if (changed) setTasks(normalized);
+    if (changed) {
+      setTasks(normalized);
+      saveTasks(normalized);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // identity from /api/me (returns 401 if not authed)
   useEffect(() => {
     let alive = true;
 
@@ -191,7 +188,8 @@ export default function App() {
     };
   }, []);
 
-  const counts = useMemo(() => {
+  // ✅ Overall Team counts
+  const teamCounts = useMemo(() => {
     return {
       overdue: tasks.filter((t) => isOverdue(t)).length,
       inProgress: tasks.filter((t) => t.status === "In Progress").length,
@@ -200,8 +198,25 @@ export default function App() {
     };
   }, [tasks]);
 
+  // ✅ My tasks (owner === userName)
+  const myTasks = useMemo(() => {
+    const me = (userName || "").trim();
+    if (!me) return [];
+    return tasks.filter((t) => (t.owner || "").trim() === me);
+  }, [tasks, userName]);
+
+  const myCounts = useMemo(() => {
+    return {
+      overdue: myTasks.filter((t) => isOverdue(t)).length,
+      inProgress: myTasks.filter((t) => t.status === "In Progress").length,
+      blocked: myTasks.filter((t) => t.status === "Blocked").length,
+      done: myTasks.filter((t) => t.status === "Done").length,
+    };
+  }, [myTasks]);
+
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
 
+  // Rule A permissions
   const canEditAny = isAdmin;
   const canEditTask = (task) => {
     if (isAdmin) return true;
@@ -226,7 +241,7 @@ export default function App() {
   }
 
   function handleLogin() {
-    // must hit /api/* so Access triggers OTP
+    // Access protects /api/*, so go there to trigger OTP
     window.location.href = "/api/login?redirectTo=/";
   }
 
@@ -312,37 +327,47 @@ export default function App() {
         {/* CONTENT */}
         <div className="dtt-card">
           {tab === "dashboard" && (
-            <>
-              <MiniDashboard counts={counts} theme={theme} />
-              <div className="dtt-muted" style={{ marginTop: 12 }}>
-                Debug: tasks={tasks.length}, authed={String(isAuthed)}
+            <div style={{ display: "grid", gap: 14 }}>
+              {/* Overall Team */}
+              <div className="dtt-card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
+                  <div className="dtt-muted">{tasks.length} total tasks</div>
+                </div>
               </div>
-            </>
+
+              <MiniDashboard title="Overall Team" counts={teamCounts} theme={theme} />
+
+              {/* My Tasks */}
+              <div className="dtt-card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 950, fontSize: 16 }}>My Tasks</div>
+                  <div className="dtt-muted">
+                    Owner: <b>{userName || "Unknown"}</b> • {myTasks.length} tasks
+                  </div>
+                </div>
+              </div>
+
+<MiniDashboard title="My Tasks" counts={myCounts} theme={theme} />
+
+              <div className="dtt-muted" style={{ marginTop: 2 }}>
+                Debug: tasks={tasks.length}, myTasks={myTasks.length}, authed={String(isAuthed)}
+              </div>
+            </div>
           )}
 
           {tab === "tasks" && (
             <>
               {tasks.length === 0 ? (
-                <div className="dtt-muted">
-                  No tasks yet. Click <b>+ New Task</b> to create one.
-                </div>
+                <div className="dtt-muted">No tasks yet. Click + New Task to create one.</div>
               ) : (
-                <Safe
-                  fallback={
-                    <div className="dtt-muted">
-                      Task table failed to render. (Check TaskTable.jsx imports/exports)
-                    </div>
-                  }
-                >
-                  <TaskTable
-                    tasks={tasks}
-                    theme={theme}
-                    onDelete={onDelete}
-                    onUpdateTask={onUpdateTask}
-                    canEditAny={canEditAny}
-                    canEditTask={canEditTask}
-                  />
-                </Safe>
+                <TaskTable
+                  tasks={tasks}
+                  onDelete={onDelete}
+                  onUpdateTask={onUpdateTask}
+                  canEditAny={canEditAny}
+                  canEditTask={canEditTask}
+                />
               )}
             </>
           )}

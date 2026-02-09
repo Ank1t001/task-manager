@@ -1,4 +1,4 @@
-export default function MiniDashboard({ counts, theme = "dark" }) {
+export default function MiniDashboard({ title, counts, theme = "dark" }) {
   const dark = theme === "dark";
   const s = styles(dark);
 
@@ -10,20 +10,29 @@ export default function MiniDashboard({ counts, theme = "dark" }) {
   ];
 
   return (
-    <div style={s.grid}>
-      {items.map((it) => (
-        <div key={it.key} style={{ ...s.card, ...sAccent(dark, it.accent) }}>
-          <div style={s.top}>
-            <span style={s.icon}>{it.emoji}</span>
-            <span style={s.label}>{it.label}</span>
-          </div>
-          <div style={s.value}>{it.value}</div>
+    <div style={{ display: "grid", gap: 10 }}>
+      {title ? (
+        <div style={{ fontWeight: 950, fontSize: 16, marginLeft: 2 }}>
+          {title}
         </div>
-      ))}
+      ) : null}
+
+      <div style={s.grid}>
+        {items.map((it) => (
+          <div key={it.key} style={{ ...s.card, ...sAccent(dark, it.accent) }}>
+            <div style={s.top}>
+              <span style={s.icon}>{it.emoji}</span>
+              <span style={s.label}>{it.label}</span>
+            </div>
+            <div style={s.value}>{it.value}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
+/* keep the rest of your functions styles() and sAccent() exactly same */
 function styles(dark) {
   return {
     grid: {
