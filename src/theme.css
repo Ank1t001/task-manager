@@ -1,62 +1,131 @@
-/* =========================
-   MODAL FORM STYLES (fix "New Task" layout)
-========================= */
-
-.dtt-modalBody form {
-  display: grid;
-  gap: 12px;
+:root {
+  --bg: #0b1220;
+  --card: rgba(17, 26, 43, 0.75);
+  --card2: rgba(17, 26, 43, 0.55);
+  --text: #eaf0ff;
+  --muted: rgba(234, 240, 255, 0.72);
+  --border: rgba(255, 255, 255, 0.12);
+  --shadow: 0 12px 40px rgba(0,0,0,0.35);
+  --radius: 18px;
 }
 
-/* Make each label stack text + control nicely */
-.dtt-modalBody label {
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--muted);
-  font-weight: 700;
+:root[data-theme="light"] {
+  --bg: #f4f7ff;
+  --card: rgba(255, 255, 255, 0.9);
+  --card2: rgba(255, 255, 255, 0.75);
+  --text: #0b1220;
+  --muted: rgba(11, 18, 32, 0.72);
+  --border: rgba(11, 18, 32, 0.12);
+  --shadow: 0 14px 34px rgba(0,0,0,0.12);
 }
 
-/* Inputs/selects full width + theme aware */
-.dtt-modalBody input,
-.dtt-modalBody select,
-.dtt-modalBody textarea {
-  width: 100%;
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background: radial-gradient(1200px 600px at 10% 10%, rgba(54, 100, 255, 0.25), transparent 60%),
+              radial-gradient(900px 500px at 90% 20%, rgba(255, 173, 66, 0.20), transparent 55%),
+              radial-gradient(1100px 700px at 60% 90%, rgba(69, 255, 177, 0.14), transparent 60%),
+              var(--bg);
+  color: var(--text);
+}
+
+a { color: inherit; }
+
+.dtt-page { min-height: 100vh; padding: 28px; }
+.dtt-shell { max-width: 1180px; margin: 0 auto; display: grid; gap: 16px; }
+
+.dtt-card {
+  background: linear-gradient(180deg, var(--card), var(--card2));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  backdrop-filter: blur(10px);
+}
+
+.dtt-titleRow { display: flex; align-items: center; gap: 18px; }
+.dtt-dot { width: 10px; height: 10px; border-radius: 999px; background: #4d7cff; box-shadow: 0 0 0 6px rgba(77,124,255,0.18); }
+
+.dtt-h1 { font-weight: 900; font-size: 26px; letter-spacing: -0.3px; }
+.dtt-muted { color: var(--muted); font-size: 13px; }
+
+.dtt-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.dtt-btn, .dtt-btnPrimary {
+  border-radius: 12px;
   padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.dtt-btn:hover { filter: brightness(1.08); }
+.dtt-btnPrimary {
+  background: rgba(77,124,255,0.22);
+  border-color: rgba(77,124,255,0.50);
+}
+
+.dtt-pill {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.dtt-tabsRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dtt-tabs { display: flex; gap: 10px; }
+.dtt-tab {
+  padding: 10px 14px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 900;
+}
+.dtt-tabActive { background: rgba(77,124,255,0.22); border-color: rgba(77,124,255,0.50); }
+
+.dtt-input, .dtt-select {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
   color: var(--text);
   outline: none;
 }
+.dtt-input::placeholder { color: rgba(255,255,255,0.42); }
+:root[data-theme="light"] .dtt-input::placeholder { color: rgba(11,18,32,0.40); }
 
-/* Focus ring */
-.dtt-modalBody input:focus,
-.dtt-modalBody select:focus,
-.dtt-modalBody textarea:focus {
-  outline: 2px solid var(--border);
+.dtt-modalBackdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; }
+.dtt-modalOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.50); backdrop-filter: blur(4px); }
+.dtt-modalCard {
+  position: relative;
+  width: min(960px, calc(100vw - 24px));
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--card), var(--card2));
+  box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+  overflow: hidden;
 }
+.dtt-modalHeader { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px; border-bottom: 1px solid var(--border); }
+.dtt-modalTitle { font-weight: 950; font-size: 22px; }
+.dtt-modalSubtitle { margin-top: 4px; color: var(--muted); font-weight: 700; }
+.dtt-modalBody { padding: 18px; }
 
-/* If your form has rows (2 columns), use this helper class */
-.dtt-modalBody .formGrid,
-.dtt-modalBody .grid2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.dtt-iconBtn {
+  width: 44px; height: 44px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
 }
-
-/* Mobile: stack into 1 column */
-@media (max-width: 720px) {
-  .dtt-modalBody .formGrid,
-  .dtt-modalBody .grid2 {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Buttons row inside modal */
-.dtt-modalBody .formActions,
-.dtt-modalBody .actionsRow {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 6px;
-}
+.dtt-iconBtn:hover { filter: brightness(1.08); }
