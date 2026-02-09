@@ -1,13 +1,6 @@
 import { useEffect } from "react";
 
-export default function Modal({
-  open = false,
-  onClose,
-  title,
-  subtitle,
-  children,
-  footer,
-}) {
+export default function Modal({ open, onClose, title, subtitle, children, footer }) {
   useEffect(() => {
     if (!open) return;
 
@@ -36,7 +29,6 @@ export default function Modal({
             {title ? <div className="dtt-modalTitle">{title}</div> : null}
             {subtitle ? <div className="dtt-modalSubtitle">{subtitle}</div> : null}
           </div>
-
           <button className="dtt-iconBtn" onClick={onClose} aria-label="Close modal">
             ✕
           </button>

@@ -5,12 +5,9 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-
-// ✅ Role config
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const TEAM_DOMAIN = "digijabber.com";
+const TEAM_DOMAIN = "equiton.com";
 
-// names must match your Owner dropdown values (owners.js)
 const TEAM = [
   { name: "Ankit", email: `ankit@${TEAM_DOMAIN}` },
   { name: "Sheel", email: `sheel@${TEAM_DOMAIN}` },
@@ -20,32 +17,33 @@ const TEAM = [
   { name: "Mandeep", email: `mandeep@${TEAM_DOMAIN}` },
 ];
 
-function normalizeEmail(v = "") {
-  return String(v).trim().toLowerCase();
+const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
+
+function migrateTask(t) {
+  const taskName = t.taskName ?? t.title ?? "";
+  const status = t.status === "Open" ? "To Do" : (t.status || "To Do");
+
+  return {
+    ...t,
+    id: t.id || crypto.randomUUID(),
+    taskName,
+    owner: t.owner || "Ankit",
+    section: t.section || "Other",
+    priority: t.priority || "Medium",
+    dueDate: t.dueDate || "",
+    status,
+    externalStakeholders: t.externalStakeholders || "",
+    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+    createdAt: t.createdAt || new Date().toISOString(),
+    updatedAt: t.updatedAt || "",
+  };
 }
 
 function loadTasks() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    // ✅ Migration for older data
-    return Array.isArray(parsed)
-      ? parsed.map((t) => ({
-          ...t,
-          // old -> new field
-          taskName: t.taskName ?? t.title ?? "",
-          // make sure status matches table badges
-          status:
-            t.status === "Open"
-              ? "To Do"
-              : t.status || "To Do",
-          priority: t.priority || "Medium",
-          owner: t.owner || "Ankit",
-          section: t.section || "Other",
-          externalStakeholders: t.externalStakeholders || "",
-          subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
-        }))
-      : [];
+    return Array.isArray(parsed) ? parsed.map(migrateTask) : [];
   } catch {
     return [];
   }
@@ -78,9 +76,7 @@ function downloadCSV(filename, rows) {
 
   const escape = (v) => {
     const s = String(v ?? "");
-    // CSV escaping
-    if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
+    return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
   const lines = [
@@ -119,23 +115,29 @@ export default function App() {
   const [tasks, setTasks] = useState(loadTasks);
   const [showModal, setShowModal] = useState(false);
 
-  // ✅ Auth state from Cloudflare Access
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
-  const [role, setRole] = useState("Member"); // default
+  const [role, setRole] = useState("Member");
 
-  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // Persist tasks
+  // One-time normalize stored tasks on mount
+  useEffect(() => {
+    const normalized = tasks.map(migrateTask);
+    saveTasks(normalized);
+    const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
+    if (changed) setTasks(normalized);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // Fetch Cloudflare Access email from Pages Function (/functions/me.js)
+  // ✅ Load Cloudflare Access identity
   useEffect(() => {
     let alive = true;
 
@@ -152,11 +154,15 @@ export default function App() {
         const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
         setRole(isAdmin ? "Admin" : "Member");
 
+        // Name mapping:
+        // 1) match from TEAM (equiton.com emails)
+        // 2) fallback: if admin email is digijabber.com, still show "Ankit"
         const match = TEAM.find((m) => normalizeEmail(m.email) === email);
-        setUserName(match?.name || "Member");
+        if (match?.name) setUserName(match.name);
+        else if (isAdmin) setUserName("Ankit");
+        else setUserName("Member");
       } catch {
         if (!alive) return;
-        // If Access is misconfigured, you'll see this
         setUserEmail("");
         setUserName("");
         setRole("Member");
@@ -169,7 +175,6 @@ export default function App() {
     };
   }, []);
 
-  // Dashboard counts
   const counts = useMemo(() => {
     return {
       overdue: tasks.filter((t) => isOverdue(t)).length,
@@ -179,14 +184,12 @@ export default function App() {
     };
   }, [tasks]);
 
-  // Permissions (Rule A)
+  // ✅ Rule A permissions
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
-
   const canEditAny = isAdmin;
 
   const canEditTask = (task) => {
     if (isAdmin) return true;
-    // members can only edit/delete/update tasks where task.owner === their name
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
@@ -196,18 +199,18 @@ export default function App() {
 
   function onUpdateTask(updated) {
     if (!updated?.id) return;
+    const nextUpdated = { ...migrateTask(updated), updatedAt: new Date().toISOString() };
+
     setTasks((prev) => {
-      const idx = prev.findIndex((t) => t.id === updated.id);
-      if (idx === -1) return [updated, ...prev];
+      const idx = prev.findIndex((t) => t.id === nextUpdated.id);
+      if (idx === -1) return [nextUpdated, ...prev];
       const next = [...prev];
-      next[idx] = updated;
+      next[idx] = nextUpdated;
       return next;
     });
   }
 
   function handleLogout() {
-    // ✅ Cloudflare Access logout
-    // If your org uses a different logout path, tell me and I’ll adjust.
     const returnTo = window.location.origin + window.location.pathname;
     window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
@@ -218,101 +221,109 @@ export default function App() {
   }
 
   return (
-    <div className="app-root">
-      {/* HEADER */}
-      <header className="app-header">
-        <div>
-          <h1>Digital Team Task Tracker</h1>
-          <p>
-            Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""})
-          </p>
+    <div className="dtt-page">
+      <div className="dtt-shell">
+        {/* HEADER */}
+        <div className="dtt-card">
+          <div className="dtt-titleRow" style={{ justifyContent: "space-between" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="dtt-dot" />
+                <div className="dtt-h1">Digital Team Task Tracker</div>
+              </div>
+              <div className="dtt-muted" style={{ marginTop: 6 }}>
+                Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""})
+              </div>
+            </div>
+
+            <div className="dtt-actions">
+              <button
+                className="dtt-btn"
+                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+              >
+                {theme === "light" ? "Dark Mode" : "Light Mode"}
+              </button>
+
+              <button className="dtt-btn" type="button" onClick={handleLogout}>
+                Logout
+              </button>
+
+              <button className="dtt-btn" type="button" onClick={handleExportCSV}>
+                Export CSV
+              </button>
+
+              <span className="dtt-pill">{tasks.length} tasks</span>
+            </div>
+          </div>
         </div>
 
-        <div className="header-actions">
-          <button onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
-            {theme === "light" ? "Dark Mode" : "Light Mode"}
-          </button>
+        {/* TABS */}
+        <div className="dtt-tabsRow">
+          <div className="dtt-tabs">
+            <button
+              className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("dashboard")}
+            >
+              Dashboard
+            </button>
 
-          <button type="button" onClick={handleLogout}>
-            Logout
-          </button>
+            <button
+              className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("tasks")}
+            >
+              Tasks
+            </button>
+          </div>
 
-          <button type="button" onClick={handleExportCSV}>
-            Export CSV
+          <button className="dtt-btnPrimary" onClick={() => setShowModal(true)}>
+            + New Task
           </button>
-
-          <span className="pill">{tasks.length} tasks</span>
         </div>
-      </header>
 
-      {/* TABS */}
-      <nav className="tabs">
-        <button
-          className={tab === "dashboard" ? "active" : ""}
-          onClick={() => setTab("dashboard")}
-        >
-          Dashboard
-        </button>
+        {/* CONTENT */}
+        <div className="dtt-card">
+          {tab === "dashboard" && <MiniDashboard counts={counts} theme={theme} />}
 
-        <button
-          className={tab === "tasks" ? "active" : ""}
-          onClick={() => setTab("tasks")}
-        >
-          Tasks
-        </button>
+          {tab === "tasks" && (
+            <TaskTable
+              tasks={tasks}
+              theme={theme}
+              onDelete={onDelete}
+              onUpdateTask={onUpdateTask}
+              canEditAny={canEditAny}
+              canEditTask={canEditTask}
+            />
+          )}
 
-        <button className="primary" onClick={() => setShowModal(true)}>
-          + New Task
-        </button>
-      </nav>
+          {tab === "tasks" && tasks.length === 0 && (
+            <div className="dtt-muted" style={{ marginTop: 12 }}>
+              No tasks yet. Click <b>+ New Task</b> to add your first task.
+            </div>
+          )}
+        </div>
 
-      {/* CONTENT */}
-      <main className="app-content">
-        {tab === "dashboard" && <MiniDashboard counts={counts} theme={theme} />}
-
-        {tab === "tasks" && (
-          <TaskTable
-            tasks={tasks}
-            theme={theme}
-            onDelete={onDelete}
-            onUpdateTask={onUpdateTask}
-            canEditAny={canEditAny}
-            canEditTask={canEditTask}
-          />
-        )}
-
-        {tab === "tasks" && tasks.length === 0 && (
-          <p style={{ marginTop: 12, opacity: 0.8 }}>
-            No tasks yet. Click <b>+ New Task</b> to add your first task.
-          </p>
-        )}
-      </main>
-
-      {/* MODAL */}
-      {showModal && (
+        {/* MODAL */}
         <Modal
-          title="Create a Task"
-          subtitle={
-            role === "Admin"
-              ? "Admin can create/edit/delete any task."
-              : "Members can edit/delete only their own tasks."
-          }
+          open={showModal}
+          title="Create a new task"
+          subtitle="Fill details and save."
           onClose={() => setShowModal(false)}
         >
           <TaskForm
             onSubmit={(task) => {
-              const finalTask = {
+              const finalTask = migrateTask({
                 ...task,
-                id: task?.id || crypto.randomUUID(),
-                createdAt: task?.createdAt || new Date().toISOString(),
-              };
+                id: crypto.randomUUID(),
+                createdAt: new Date().toISOString(),
+              });
               setTasks((prev) => [finalTask, ...prev]);
               setShowModal(false);
+              setTab("tasks");
             }}
             onCancel={() => setShowModal(false)}
           />
         </Modal>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { OWNER_OPTIONS } from "../owners"; // ✅ uses your existing owner list
+import { OWNER_OPTIONS } from "../owners";
 
 export default function TaskForm({ onSubmit, onCancel }) {
   const [form, setForm] = useState({
@@ -19,19 +19,15 @@ export default function TaskForm({ onSubmit, onCancel }) {
   function handleSubmit(e) {
     e.preventDefault();
     if (!form.taskName.trim()) return;
-
-    onSubmit?.({
-      ...form,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    });
+    onSubmit?.(form);
   }
 
   return (
-    <form className="taskForm" onSubmit={handleSubmit}>
-      <div className="formGroup">
-        <label>Task Name</label>
+    <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontWeight: 900 }}>Task Name</label>
         <input
+          className="dtt-input"
           value={form.taskName}
           onChange={(e) => update("taskName", e.target.value)}
           placeholder="Enter task name"
@@ -39,10 +35,14 @@ export default function TaskForm({ onSubmit, onCancel }) {
         />
       </div>
 
-      <div className="formGrid">
-        <div className="formGroup">
-          <label>Owner</label>
-          <select value={form.owner} onChange={(e) => update("owner", e.target.value)}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ fontWeight: 900 }}>Owner</label>
+          <select
+            className="dtt-select"
+            value={form.owner}
+            onChange={(e) => update("owner", e.target.value)}
+          >
             {OWNER_OPTIONS.map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -51,18 +51,26 @@ export default function TaskForm({ onSubmit, onCancel }) {
           </select>
         </div>
 
-        <div className="formGroup">
-          <label>Priority</label>
-          <select value={form.priority} onChange={(e) => update("priority", e.target.value)}>
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ fontWeight: 900 }}>Priority</label>
+          <select
+            className="dtt-select"
+            value={form.priority}
+            onChange={(e) => update("priority", e.target.value)}
+          >
             <option>Low</option>
             <option>Medium</option>
             <option>High</option>
           </select>
         </div>
 
-        <div className="formGroup">
-          <label>Status</label>
-          <select value={form.status} onChange={(e) => update("status", e.target.value)}>
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ fontWeight: 900 }}>Status</label>
+          <select
+            className="dtt-select"
+            value={form.status}
+            onChange={(e) => update("status", e.target.value)}
+          >
             <option>To Do</option>
             <option>In Progress</option>
             <option>Blocked</option>
@@ -70,39 +78,42 @@ export default function TaskForm({ onSubmit, onCancel }) {
           </select>
         </div>
 
-        <div className="formGroup">
-          <label>Due Date</label>
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ fontWeight: 900 }}>Due Date</label>
           <input
+            className="dtt-input"
             type="date"
             value={form.dueDate}
             onChange={(e) => update("dueDate", e.target.value)}
           />
         </div>
-
-        <div className="formGroup" style={{ gridColumn: "1 / -1" }}>
-          <label>Section</label>
-          <input
-            value={form.section}
-            onChange={(e) => update("section", e.target.value)}
-            placeholder="Ads / Creative / Compliance Review / etc."
-          />
-        </div>
       </div>
 
-      <div className="formGroup">
-        <label>External Stakeholders</label>
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontWeight: 900 }}>Section</label>
         <input
+          className="dtt-input"
+          value={form.section}
+          onChange={(e) => update("section", e.target.value)}
+          placeholder="Ads / Creative / Compliance / Reporting / etc."
+        />
+      </div>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontWeight: 900 }}>External Stakeholders</label>
+        <input
+          className="dtt-input"
           value={form.externalStakeholders}
           onChange={(e) => update("externalStakeholders", e.target.value)}
           placeholder="Vendor, agency, partner"
         />
       </div>
 
-      <div className="formActions">
-        <button type="button" onClick={onCancel}>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+        <button type="button" className="dtt-btn" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="primary">
+        <button type="submit" className="dtt-btnPrimary">
           Create Task
         </button>
       </div>
