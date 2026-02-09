@@ -6,9 +6,19 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
+const BUILD_VERSION = "v6-api-login-otp";
 
-// optional label to confirm you’re on latest deploy
-const BUILD_VERSION = "v5-access-401-login-btn";
+// Email -> Display name mapping
+// (Update any emails if needed)
+const TEAM_MAP = {
+  "ankit@digijabber.com": "Ankit",
+  "ankit@equiton.com": "Ankit",
+  "sheel@equiton.com": "Sheel",
+  "aditi@equiton.com": "Aditi",
+  "jacob@equiton.com": "Jacob",
+  "vanessa@equiton.com": "Vanessa",
+  "mandeep@equiton.com": "Mandeep",
+};
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
@@ -93,14 +103,12 @@ function downloadCSV(filename, rows) {
 
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-
   URL.revokeObjectURL(url);
 }
 
@@ -111,21 +119,22 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
 
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // theme
+  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // persist tasks
+  // Persist tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // one-time migrate old tasks
+  // One-time normalize tasks on mount
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
@@ -136,7 +145,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ identity load (NO CORS redirect now; /api/me returns 401 JSON if not authed)
+  // ✅ Load identity from /api/me (no redirect; me.js returns 401 JSON if not authed)
   useEffect(() => {
     let alive = true;
 
@@ -148,6 +157,7 @@ export default function App() {
           if (!alive) return;
           setIsAuthed(false);
           setUserEmail("");
+          setUserName("");
           setRole("Member");
           return;
         }
@@ -162,10 +172,16 @@ export default function App() {
 
         const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
         setRole(isAdmin ? "Admin" : "Member");
+
+        // Name from mapping (fallback to local-part)
+        const mapped = TEAM_MAP[email];
+        const fallbackName = email ? email.split("@")[0] : "Member";
+        setUserName(mapped || fallbackName);
       } catch {
         if (!alive) return;
         setIsAuthed(false);
         setUserEmail("");
+        setUserName("");
         setRole("Member");
       }
     }
@@ -189,11 +205,11 @@ export default function App() {
 
   // Rule A permissions
   const canEditAny = isAdmin;
+
   const canEditTask = (task) => {
     if (isAdmin) return true;
-    // For members: only edit if task.owner matches their name
-    // (We can map email -> name later; for now you can keep members restricted by Owner name if you want)
-    return false;
+    // members can edit/delete only their own tasks (Owner matches their name)
+    return (task?.owner || "").trim() === (userName || "").trim();
   };
 
   function onDelete(id) {
@@ -213,17 +229,15 @@ export default function App() {
     });
   }
 
-  // ✅ Login (browser navigation, not fetch)
+  // ✅ Login must go to /api/* to trigger Access (your Access app protects /api/*)
   function handleLogin() {
-  // Just navigate to the app root.
-  // Cloudflare Access will automatically prompt for login if needed.
-  window.location.href = window.location.origin + "/";
-}
+    window.location.href = "/api/login?redirectTo=/";
+  }
 
-  // ✅ Logout (browser navigation)
+  // ✅ Logout must also go through /api/* so Access always handles it
   function handleLogout() {
     const returnTo = window.location.origin + "/";
-    window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
+    window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
   // ✅ Export CSV
@@ -245,7 +259,8 @@ export default function App() {
               </div>
 
               <div className="dtt-muted" style={{ marginTop: 6 }}>
-                Signed in: {userEmail || "Unknown"} ({role}) • {BUILD_VERSION}
+                Signed in: {userEmail || "Unknown"} ({role}
+                {userName ? `: ${userName}` : ""})
               </div>
             </div>
 
@@ -257,17 +272,16 @@ export default function App() {
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>
 
-              {!isAuthed && (
+              {!isAuthed ? (
                 <button className="dtt-btnPrimary" onClick={handleLogin}>
                   Login
                 </button>
-              )}
-
-              {isAuthed && (
+              ) : (
                 <>
                   <button className="dtt-btn" type="button" onClick={handleLogout}>
                     Logout
                   </button>
+
                   <button className="dtt-btn" type="button" onClick={handleExportCSV}>
                     Export CSV
                   </button>

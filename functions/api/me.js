@@ -4,7 +4,6 @@ export async function onRequest({ request }) {
     request.headers.get("cf-access-authenticated-user-email") ||
     "";
 
-  // IMPORTANT: Do NOT redirect. Return 401 JSON instead (prevents fetch CORS redirect issues)
   if (!email) {
     return new Response(JSON.stringify({ email: "", authenticated: false }), {
       status: 401,
