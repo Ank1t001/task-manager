@@ -215,7 +215,9 @@ export default function App() {
 
   // ✅ Login (browser navigation, not fetch)
   function handleLogin() {
-  window.location.href = "/api/login?returnTo=/";
+  // Just navigate to the app root.
+  // Cloudflare Access will automatically prompt for login if needed.
+  window.location.href = window.location.origin + "/";
 }
 
   // ✅ Logout (browser navigation)
