@@ -1,0 +1,195 @@
+/* =========================
+   BASE RESET + FULL WIDTH
+========================= */
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+
+#root {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* =========================
+   THEME VARIABLES
+========================= */
+:root {
+  --bg: #ffffff;
+  --surface: #f7f7f8;
+  --surface-2: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: rgba(17, 24, 39, 0.12);
+
+  --primary: #111827;
+  --primaryText: #ffffff;
+
+  --shadow: 0 10px 30px rgba(0,0,0,0.12);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #0f172a;
+  --surface-2: #111c33;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: rgba(229, 231, 235, 0.14);
+
+  --primary: #e5e7eb;
+  --primaryText: #0b1220;
+
+  --shadow: 0 12px 40px rgba(0,0,0,0.55);
+}
+
+/* =========================
+   APP LAYOUT
+========================= */
+.app-root {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  align-items: center;
+}
+
+.app-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.app-subtitle {
+  margin: 6px 0 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.app-content {
+  padding: 16px 20px;
+}
+
+/* Buttons */
+.btn, button {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn:hover, button:hover {
+  filter: brightness(0.98);
+}
+
+.btn.primary {
+  background: var(--primary);
+  color: var(--primaryText);
+  border-color: transparent;
+}
+
+.pill {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tabBtn.active {
+  outline: 2px solid var(--border);
+}
+
+/* =========================
+   MODAL FIX (SIZE + THEME)
+========================= */
+.dtt-modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9999;
+}
+
+.dtt-modalPanel {
+  width: min(760px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.dtt-modalHeader {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dtt-modalHeader h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.dtt-modalHeader p {
+  margin: 6px 0 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dtt-modalBody {
+  padding: 14px 16px;
+}
+
+.dtt-iconBtn {
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.dtt-iconBtn:hover {
+  filter: brightness(0.98);
+}
