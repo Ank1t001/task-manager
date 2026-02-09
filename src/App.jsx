@@ -141,7 +141,7 @@ export default function App() {
 
     async function loadMe() {
       try {
-        const res = await fetch("/me", { cache: "no-store" });
+        const res = await fetch("/api/me", { cache: "no-store" });
         const data = await res.json();
         const email = normalizeEmail(data?.email);
 
