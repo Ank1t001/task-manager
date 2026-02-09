@@ -7,9 +7,11 @@ import Modal from "./components/Modal";
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
 
+// optional label to confirm you’re on latest deploy
+const BUILD_VERSION = "v5-access-401-login-btn";
+
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
-// --- Task migration (fixes old data) ---
 function migrateTask(t) {
   const taskName = t.taskName ?? t.title ?? "";
   const status = t.status === "Open" ? "To Do" : (t.status || "To Do");
@@ -110,21 +112,20 @@ export default function App() {
 
   const [userEmail, setUserEmail] = useState("");
   const [role, setRole] = useState("Member");
-  const [userName, setUserName] = useState("");
-  const BUILD_VERSION = "v4-live-logout-export-auth";
+  const [isAuthed, setIsAuthed] = useState(false);
 
-  // Theme
+  // theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // Save tasks
+  // persist tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // Normalize old tasks ONCE
+  // one-time migrate old tasks
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
@@ -135,33 +136,37 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Load identity from Cloudflare Access (Pages Function)
+  // ✅ identity load (NO CORS redirect now; /api/me returns 401 JSON if not authed)
   useEffect(() => {
     let alive = true;
 
     async function loadMe() {
       try {
-        const res = await fetch("/api/me", {
-          cache: "no-store",
-          credentials: "same-origin",
-          headers: { Accept: "application/json" },
-        });
+        const res = await fetch("/api/me", { cache: "no-store" });
+
+        if (res.status === 401) {
+          if (!alive) return;
+          setIsAuthed(false);
+          setUserEmail("");
+          setRole("Member");
+          return;
+        }
 
         const data = await res.json();
         const email = normalizeEmail(data?.email);
 
         if (!alive) return;
 
+        setIsAuthed(true);
         setUserEmail(email);
 
         const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
         setRole(isAdmin ? "Admin" : "Member");
-        setUserName(isAdmin ? "Ankit" : "Member");
       } catch {
         if (!alive) return;
+        setIsAuthed(false);
         setUserEmail("");
         setRole("Member");
-        setUserName("");
       }
     }
 
@@ -182,12 +187,13 @@ export default function App() {
 
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
 
-  // Rule A
+  // Rule A permissions
   const canEditAny = isAdmin;
   const canEditTask = (task) => {
     if (isAdmin) return true;
-    // if you later map real names, replace userName with that mapping
-    return (task?.owner || "").trim() === (userName || "").trim();
+    // For members: only edit if task.owner matches their name
+    // (We can map email -> name later; for now you can keep members restricted by Owner name if you want)
+    return false;
   };
 
   function onDelete(id) {
@@ -207,13 +213,18 @@ export default function App() {
     });
   }
 
-  // ✅ REAL Logout (no alert)
+  // ✅ Login (browser navigation, not fetch)
+  function handleLogin() {
+    window.location.href = "/cdn-cgi/access/login";
+  }
+
+  // ✅ Logout (browser navigation)
   function handleLogout() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
-  // ✅ REAL Export CSV
+  // ✅ Export CSV
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCSV(`tasks_${stamp}.csv`, tasks);
@@ -222,6 +233,7 @@ export default function App() {
   return (
     <div className="dtt-page">
       <div className="dtt-shell">
+        {/* HEADER */}
         <div className="dtt-card">
           <div className="dtt-titleRow" style={{ justifyContent: "space-between" }}>
             <div>
@@ -229,29 +241,43 @@ export default function App() {
                 <span className="dtt-dot" />
                 <div className="dtt-h1">Digital Team Task Tracker</div>
               </div>
+
               <div className="dtt-muted" style={{ marginTop: 6 }}>
                 Signed in: {userEmail || "Unknown"} ({role}) • {BUILD_VERSION}
               </div>
             </div>
 
             <div className="dtt-actions">
-              <button className="dtt-btn" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
+              <button
+                className="dtt-btn"
+                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+              >
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>
 
-              <button className="dtt-btn" type="button" onClick={handleLogout}>
-                Logout
-              </button>
+              {!isAuthed && (
+                <button className="dtt-btnPrimary" onClick={handleLogin}>
+                  Login
+                </button>
+              )}
 
-              <button className="dtt-btn" type="button" onClick={handleExportCSV}>
-                Export CSV
-              </button>
+              {isAuthed && (
+                <>
+                  <button className="dtt-btn" type="button" onClick={handleLogout}>
+                    Logout
+                  </button>
+                  <button className="dtt-btn" type="button" onClick={handleExportCSV}>
+                    Export CSV
+                  </button>
+                </>
+              )}
 
               <span className="dtt-pill">{tasks.length} tasks</span>
             </div>
           </div>
         </div>
 
+        {/* TABS */}
         <div className="dtt-tabsRow">
           <div className="dtt-tabs">
             <button
@@ -274,6 +300,7 @@ export default function App() {
           </button>
         </div>
 
+        {/* CONTENT */}
         <div className="dtt-card">
           {tab === "dashboard" && <MiniDashboard counts={counts} theme={theme} />}
 
@@ -289,6 +316,7 @@ export default function App() {
           )}
         </div>
 
+        {/* MODAL */}
         <Modal
           open={showModal}
           title="Create a new task"
