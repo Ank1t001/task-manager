@@ -110,7 +110,7 @@ function downloadCSV(filename, rows) {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
+  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "dark");
   const [tab, setTab] = useState("dashboard");
   const [tasks, setTasks] = useState(loadTasks);
   const [showModal, setShowModal] = useState(false);
@@ -124,20 +124,21 @@ export default function App() {
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // One-time normalize stored tasks on mount
   useEffect(() => {
+    // normalize + persist
     const normalized = tasks.map(migrateTask);
     saveTasks(normalized);
+
+    // only set state if changed
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
     if (changed) setTasks(normalized);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // once on mount
 
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // ✅ Load Cloudflare Access identity
   useEffect(() => {
     let alive = true;
 
@@ -155,8 +156,8 @@ export default function App() {
         setRole(isAdmin ? "Admin" : "Member");
 
         // Name mapping:
-        // 1) match from TEAM (equiton.com emails)
-        // 2) fallback: if admin email is digijabber.com, still show "Ankit"
+        // 1) Match TEAM (equiton.com)
+        // 2) Fallback: admin can still be ankit@digijabber.com
         const match = TEAM.find((m) => normalizeEmail(m.email) === email);
         if (match?.name) setUserName(match.name);
         else if (isAdmin) setUserName("Ankit");
@@ -184,10 +185,10 @@ export default function App() {
     };
   }, [tasks]);
 
-  // ✅ Rule A permissions
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
-  const canEditAny = isAdmin;
 
+  // Rule A
+  const canEditAny = isAdmin;
   const canEditTask = (task) => {
     if (isAdmin) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
@@ -210,11 +211,13 @@ export default function App() {
     });
   }
 
+  // ✅ WORKING Logout
   function handleLogout() {
     const returnTo = window.location.origin + window.location.pathname;
     window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
+  // ✅ WORKING Export CSV
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCSV(`tasks_${stamp}.csv`, tasks);
@@ -293,12 +296,6 @@ export default function App() {
               canEditAny={canEditAny}
               canEditTask={canEditTask}
             />
-          )}
-
-          {tab === "tasks" && tasks.length === 0 && (
-            <div className="dtt-muted" style={{ marginTop: 12 }}>
-              No tasks yet. Click <b>+ New Task</b> to add your first task.
-            </div>
           )}
         </div>
 
