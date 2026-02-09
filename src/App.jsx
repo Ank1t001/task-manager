@@ -215,8 +215,8 @@ export default function App() {
 
   // ✅ Login (browser navigation, not fetch)
   function handleLogin() {
-    window.location.href = "/cdn-cgi/access/login";
-  }
+  window.location.href = "/api/login?returnTo=/";
+}
 
   // ✅ Logout (browser navigation)
   function handleLogout() {
