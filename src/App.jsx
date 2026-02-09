@@ -5,13 +5,47 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
-const THEME_KEY = "dtt_theme";
+
+// ✅ Role config
 const ADMIN_EMAIL = "ankit@digijabber.com";
+const TEAM_DOMAIN = "digijabber.com";
+
+// names must match your Owner dropdown values (owners.js)
+const TEAM = [
+  { name: "Ankit", email: `ankit@${TEAM_DOMAIN}` },
+  { name: "Sheel", email: `sheel@${TEAM_DOMAIN}` },
+  { name: "Aditi", email: `aditi@${TEAM_DOMAIN}` },
+  { name: "Jacob", email: `jacob@${TEAM_DOMAIN}` },
+  { name: "Vanessa", email: `vanessa@${TEAM_DOMAIN}` },
+  { name: "Mandeep", email: `mandeep@${TEAM_DOMAIN}` },
+];
+
+function normalizeEmail(v = "") {
+  return String(v).trim().toLowerCase();
+}
 
 function loadTasks() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    // ✅ Migration for older data
+    return Array.isArray(parsed)
+      ? parsed.map((t) => ({
+          ...t,
+          // old -> new field
+          taskName: t.taskName ?? t.title ?? "",
+          // make sure status matches table badges
+          status:
+            t.status === "Open"
+              ? "To Do"
+              : t.status || "To Do",
+          priority: t.priority || "Medium",
+          owner: t.owner || "Ankit",
+          section: t.section || "Other",
+          externalStakeholders: t.externalStakeholders || "",
+          subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+        }))
+      : [];
   } catch {
     return [];
   }
@@ -29,38 +63,71 @@ function isOverdue(task) {
   return due < today && task.status !== "Done";
 }
 
-function csvEscape(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
+function downloadCSV(filename, rows) {
+  const headers = [
+    "Task Name",
+    "Owner",
+    "Section",
+    "Priority",
+    "Due Date",
+    "Status",
+    "External Stakeholders",
+    "Created At",
+    "Updated At",
+  ];
 
-function downloadCsv(filename, rows) {
-  const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const escape = (v) => {
+    const s = String(v ?? "");
+    // CSV escaping
+    if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const lines = [
+    headers.join(","),
+    ...rows.map((t) =>
+      [
+        t.taskName,
+        t.owner,
+        t.section,
+        t.priority,
+        t.dueDate,
+        t.status,
+        t.externalStakeholders,
+        t.createdAt,
+        t.updatedAt,
+      ]
+        .map(escape)
+        .join(",")
+    ),
+  ];
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(localStorage.getItem(THEME_KEY) || "light");
+  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
   const [tab, setTab] = useState("dashboard");
   const [tasks, setTasks] = useState(loadTasks);
   const [showModal, setShowModal] = useState(false);
 
+  // ✅ Auth state from Cloudflare Access
+  const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [role, setRole] = useState("Member"); // default
+
   // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
   // Persist tasks
@@ -68,7 +135,41 @@ export default function App() {
     saveTasks(tasks);
   }, [tasks]);
 
-  // Dashboard counts (what MiniDashboard expects)
+  // Fetch Cloudflare Access email from Pages Function (/functions/me.js)
+  useEffect(() => {
+    let alive = true;
+
+    async function loadMe() {
+      try {
+        const res = await fetch("/me", { cache: "no-store" });
+        const data = await res.json();
+        const email = normalizeEmail(data?.email);
+
+        if (!alive) return;
+
+        setUserEmail(email);
+
+        const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
+        setRole(isAdmin ? "Admin" : "Member");
+
+        const match = TEAM.find((m) => normalizeEmail(m.email) === email);
+        setUserName(match?.name || "Member");
+      } catch {
+        if (!alive) return;
+        // If Access is misconfigured, you'll see this
+        setUserEmail("");
+        setUserName("");
+        setRole("Member");
+      }
+    }
+
+    loadMe();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Dashboard counts
   const counts = useMemo(() => {
     return {
       overdue: tasks.filter((t) => isOverdue(t)).length,
@@ -78,7 +179,17 @@ export default function App() {
     };
   }, [tasks]);
 
-  // TaskTable expects these callbacks
+  // Permissions (Rule A)
+  const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
+
+  const canEditAny = isAdmin;
+
+  const canEditTask = (task) => {
+    if (isAdmin) return true;
+    // members can only edit/delete/update tasks where task.owner === their name
+    return (task?.owner || "").trim() === (userName || "").trim();
+  };
+
   function onDelete(id) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
@@ -95,47 +206,16 @@ export default function App() {
   }
 
   function handleLogout() {
-    // clears your local tasks + theme (simple logout)
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(THEME_KEY);
-    window.location.reload();
+    // ✅ Cloudflare Access logout
+    // If your org uses a different logout path, tell me and I’ll adjust.
+    const returnTo = window.location.origin + window.location.pathname;
+    window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
-  function handleExportCsv() {
-    const header = [
-      "id",
-      "taskName",
-      "owner",
-      "section",
-      "priority",
-      "status",
-      "dueDate",
-      "externalStakeholders",
-      "createdAt",
-      "updatedAt",
-    ];
-
-    const rows = tasks.map((t) => [
-      t.id || "",
-      t.taskName || "",
-      t.owner || "",
-      t.section || "",
-      t.priority || "",
-      t.status || "",
-      t.dueDate || "",
-      t.externalStakeholders || "",
-      t.createdAt || "",
-      t.updatedAt || "",
-    ]);
-
-    downloadCsv("tasks.csv", [header, ...rows]);
+  function handleExportCSV() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`tasks_${stamp}.csv`, tasks);
   }
-
-  // permissions placeholders (your TaskTable expects these)
-  const canEditAny = true;
-  const canEditTask = () => true;
-
-  const userEmail = ADMIN_EMAIL;
 
   return (
     <div className="app-root">
@@ -143,22 +223,21 @@ export default function App() {
       <header className="app-header">
         <div>
           <h1>Digital Team Task Tracker</h1>
-          <p>Signed in: {userEmail} (Admin)</p>
+          <p>
+            Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""})
+          </p>
         </div>
 
         <div className="header-actions">
-          <button
-            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            type="button"
-          >
+          <button onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
             {theme === "light" ? "Dark Mode" : "Light Mode"}
           </button>
 
-          <button onClick={handleLogout} type="button">
+          <button type="button" onClick={handleLogout}>
             Logout
           </button>
 
-          <button onClick={handleExportCsv} type="button">
+          <button type="button" onClick={handleExportCSV}>
             Export CSV
           </button>
 
@@ -171,7 +250,6 @@ export default function App() {
         <button
           className={tab === "dashboard" ? "active" : ""}
           onClick={() => setTab("dashboard")}
-          type="button"
         >
           Dashboard
         </button>
@@ -179,12 +257,11 @@ export default function App() {
         <button
           className={tab === "tasks" ? "active" : ""}
           onClick={() => setTab("tasks")}
-          type="button"
         >
           Tasks
         </button>
 
-        <button className="primary" onClick={() => setShowModal(true)} type="button">
+        <button className="primary" onClick={() => setShowModal(true)}>
           + New Task
         </button>
       </nav>
@@ -203,24 +280,31 @@ export default function App() {
             canEditTask={canEditTask}
           />
         )}
+
+        {tab === "tasks" && tasks.length === 0 && (
+          <p style={{ marginTop: 12, opacity: 0.8 }}>
+            No tasks yet. Click <b>+ New Task</b> to add your first task.
+          </p>
+        )}
       </main>
 
       {/* MODAL */}
       {showModal && (
         <Modal
-          open={showModal}
-          title="Create a new task"
-          subtitle="Fill details and save."
+          title="Create a Task"
+          subtitle={
+            role === "Admin"
+              ? "Admin can create/edit/delete any task."
+              : "Members can edit/delete only their own tasks."
+          }
           onClose={() => setShowModal(false)}
         >
           <TaskForm
-            theme={theme}
-            canEdit={true}
             onSubmit={(task) => {
-              // TaskForm already returns correct shape; ensure id exists
               const finalTask = {
                 ...task,
                 id: task?.id || crypto.randomUUID(),
+                createdAt: task?.createdAt || new Date().toISOString(),
               };
               setTasks((prev) => [finalTask, ...prev]);
               setShowModal(false);
