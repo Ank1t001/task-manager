@@ -1,259 +1,259 @@
-/* =========================
-   BASE RESET + FULL WIDTH
-========================= */
-html, body {
-  height: 100%;
+/* ====== Global reset + prevent half-screen/overflow ====== */
+* { box-sizing: border-box; }
+
+html, body, #root {
   width: 100%;
-}
-
-body {
+  max-width: 100%;
+  min-height: 100%;
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  padding: 0;
+  overflow-x: hidden;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-#root {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  min-height: 100vh;
-}
-
-/* =========================
-   THEME VARIABLES
-========================= */
+/* ====== Theme tokens ====== */
 :root {
-  --bg: #ffffff;
-  --surface: #f7f7f8;
-  --surface-2: #ffffff;
-  --text: #111827;
-  --muted: #6b7280;
-  --border: rgba(17, 24, 39, 0.12);
+  --bg: #f5f7ff;
+  --bg2: #eef2ff;
 
-  --primary: #111827;
-  --primaryText: #ffffff;
+  --card: rgba(255,255,255,0.92);
+  --card2: rgba(255,255,255,0.82);
 
-  --shadow: 0 10px 30px rgba(0,0,0,0.12);
+  --text: #0f172a;
+  --muted: rgba(15,23,42,0.65);
+
+  --border: rgba(15,23,42,0.12);
+  --shadow: 0 18px 46px rgba(15,23,42,0.10);
+
+  --btnBg: rgba(255,255,255,0.92);
+  --btnText: #0f172a;
+
+  --accent: linear-gradient(90deg, rgba(99,102,241,0.92), rgba(212,175,55,0.85));
+  --accentBorder: rgba(212,175,55,0.28);
+
+  --inputBg: rgba(255,255,255,0.98);
+  --inputText: #0f172a;
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b1220;
-  --surface: #0f172a;
-  --surface-2: #111c33;
-  --text: #e5e7eb;
-  --muted: #9ca3af;
-  --border: rgba(229, 231, 235, 0.14);
+  --bg: #020617;
+  --bg2: #071321;
 
-  --primary: #e5e7eb;
-  --primaryText: #0b1220;
+  --card: rgba(255,255,255,0.05);
+  --card2: rgba(255,255,255,0.07);
 
-  --shadow: 0 12px 40px rgba(0,0,0,0.55);
+  --text: #eaf0ff;
+  --muted: rgba(226,232,240,0.70);
+
+  --border: rgba(255,255,255,0.12);
+  --shadow: 0 20px 50px rgba(0,0,0,0.45);
+
+  --btnBg: rgba(255,255,255,0.06);
+  --btnText: rgba(226,232,240,0.92);
+
+  --inputBg: rgba(255,255,255,0.08);
+  --inputText: rgba(226,232,240,0.92);
 }
 
-/* =========================
-   APP LAYOUT
-========================= */
-.app-root {
+/* ====== Layout wrappers ====== */
+.dtt-page{
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
+  width: 100%;
+  background:
+    radial-gradient(1200px 700px at 20% 0%, rgba(59,130,246,0.12) 0%, transparent 60%),
+    radial-gradient(900px 500px at 90% 10%, rgba(212,175,55,0.12) 0%, transparent 55%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg2) 55%, var(--bg) 100%);
+  padding: 16px;
 }
 
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  align-items: center;
-}
-
-.app-title {
+.dtt-shell{
+  width: 100%;
+  max-width: none;
   margin: 0;
-  font-size: 18px;
+  display: grid;
+  gap: 14px;
 }
 
-.app-subtitle {
-  margin: 6px 0 0 0;
-  color: var(--muted);
-  font-size: 13px;
+/* ====== UI atoms ====== */
+.dtt-card{
+  width: 100%;
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
 }
 
-.header-actions {
+.dtt-titleRow{
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.tabs {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-}
-
-.app-content {
-  padding: 16px 20px;
-}
-
-/* Buttons */
-.btn, button {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.btn:hover, button:hover {
-  filter: brightness(0.98);
-}
-
-.btn.primary {
-  background: var(--primary);
-  color: var(--primaryText);
-  border-color: transparent;
-}
-
-.pill {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
+.dtt-dot{
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
-  color: var(--muted);
-  font-size: 12px;
+  background: #d4af37;
+  box-shadow: 0 0 0 4px rgba(212,175,55,0.14);
 }
 
-.tabBtn.active {
-  outline: 2px solid var(--border);
-}
-
-/* =========================
-   MODAL FIX (SIZE + THEME)
-========================= */
-.dtt-modalBackdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 9999;
-}
-
-.dtt-modalPanel {
-  width: min(760px, calc(100vw - 40px));
-  max-height: calc(100vh - 40px);
-  overflow: auto;
-
-  background: var(--surface-2);
+.dtt-h1{
+  font-size: 22px;
+  font-weight: 1000;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
 }
 
-.dtt-modalHeader {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.dtt-modalHeader h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.dtt-modalHeader p {
-  margin: 6px 0 0 0;
+.dtt-muted{
   color: var(--muted);
   font-size: 13px;
 }
 
-.dtt-modalBody {
-  padding: 14px 16px;
+.dtt-actions{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-.dtt-iconBtn {
-  border-radius: 10px;
-  padding: 8px 10px;
+.dtt-btn{
+  padding: 10px 14px;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--btnBg);
+  color: var(--btnText);
+  font-weight: 950;
+  cursor: pointer;
 }
 
-.dtt-iconBtn:hover {
-  filter: brightness(0.98);
-}
-/* =========================
-   QUICK CONTRAST FIX (Dashboard / Cards / Tables)
-   This overrides older "washed out" styles.
-========================= */
-
-/* Make sure text is readable everywhere */
-.app-root,
-.app-root * {
-  color: inherit;
+.dtt-btnPrimary{
+  padding: 12px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--accentBorder);
+  background: var(--accent);
+  color: #0b1220;
+  font-weight: 1000;
+  cursor: pointer;
 }
 
-/* Card defaults */
-.card, .panel, .widget, .statCard, .summaryCard,
-.dashboardCard, .miniCard, .kpiCard {
-  background: var(--surface-2) !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border) !important;
+.dtt-pill{
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(99,102,241,0.08);
+  color: var(--text);
+  font-weight: 950;
 }
 
-/* Any headings inside cards */
-.card h1, .card h2, .card h3,
-.panel h1, .panel h2, .panel h3,
-.widget h1, .widget h2, .widget h3,
-.statCard h1, .statCard h2, .statCard h3,
-.summaryCard h1, .summaryCard h2, .summaryCard h3 {
-  color: var(--text) !important;
+/* ====== Tabs ====== */
+.dtt-tabsRow{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
-/* Big KPI numbers often get hard-coded to light colors */
-.card .value, .card .number, .card .count,
-.panel .value, .panel .number, .panel .count,
-.widget .value, .widget .number, .widget .count,
-.statCard .value, .statCard .number, .statCard .count,
-.summaryCard .value, .summaryCard .number, .summaryCard .count {
-  color: var(--text) !important;
+.dtt-tabs{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-/* Muted labels */
-.card .label, .card small,
-.panel .label, .panel small,
-.widget .label, .widget small,
-.statCard .label, .statCard small,
-.summaryCard .label, .summaryCard small {
-  color: var(--muted) !important;
+.dtt-tab{
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--btnBg);
+  color: var(--btnText);
+  font-weight: 950;
+  cursor: pointer;
 }
 
-/* Tables readability */
-table {
+.dtt-tabActive{
+  outline: 2px solid rgba(99,102,241,0.45);
+}
+
+/* ====== Form controls ====== */
+.dtt-input, .dtt-select{
   width: 100%;
-  border-collapse: collapse;
-  background: var(--surface-2);
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  outline: none;
+  background: var(--inputBg);
+  color: var(--inputText);
+}
+
+/* ====== Modal (theme-aware) ====== */
+.dtt-modalBackdrop{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+}
+
+.dtt-modalOverlay{
+  position: absolute;
+  inset: 0;
+  background: rgba(15,23,42,0.35); /* light mode */
+  backdrop-filter: blur(6px);
+}
+:root[data-theme="dark"] .dtt-modalOverlay{
+  background: rgba(2,6,23,0.65);
+}
+
+.dtt-modalCard{
+  position: relative;
+  width: min(860px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.dtt-modalHeader{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dtt-modalTitle{
+  font-size: 16px;
+  font-weight: 1000;
   color: var(--text);
 }
 
-th, td {
-  border-bottom: 1px solid var(--border);
-  padding: 10px 12px;
-  text-align: left;
+.dtt-modalSubtitle{
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-th {
-  color: var(--muted);
-  font-weight: 600;
+.dtt-iconBtn{
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--btnBg);
+  color: var(--btnText);
+  padding: 8px 10px;
+  font-weight: 1000;
+  cursor: pointer;
+}
+
+.dtt-modalBody{ padding: 16px; }
+
+.dtt-modalFooter{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px 16px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--card2);
 }
