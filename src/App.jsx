@@ -6,10 +6,8 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v6-api-login-otp";
+const BUILD_VERSION = "v7.1.1";
 
-// Email -> Display name mapping
-// (Update any emails if needed)
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
   "ankit@equiton.com": "Ankit",
@@ -112,8 +110,17 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+// Simple error boundary wrapper (so TaskTable can’t blank the whole screen)
+function Safe({ children, fallback }) {
+  try {
+    return children;
+  } catch {
+    return fallback ?? null;
+  }
+}
+
 export default function App() {
-  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "dark");
+  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
   const [tab, setTab] = useState("dashboard");
   const [tasks, setTasks] = useState(loadTasks);
   const [showModal, setShowModal] = useState(false);
@@ -123,29 +130,22 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // Persist tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // One-time normalize tasks on mount
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
-    if (changed) {
-      setTasks(normalized);
-      saveTasks(normalized);
-    }
+    if (changed) setTasks(normalized);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Load identity from /api/me (no redirect; me.js returns 401 JSON if not authed)
   useEffect(() => {
     let alive = true;
 
@@ -173,10 +173,9 @@ export default function App() {
         const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
         setRole(isAdmin ? "Admin" : "Member");
 
-        // Name from mapping (fallback to local-part)
         const mapped = TEAM_MAP[email];
-        const fallbackName = email ? email.split("@")[0] : "Member";
-        setUserName(mapped || fallbackName);
+        const fallback = email ? email.split("@")[0] : "Member";
+        setUserName(mapped || fallback);
       } catch {
         if (!alive) return;
         setIsAuthed(false);
@@ -203,12 +202,9 @@ export default function App() {
 
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
 
-  // Rule A permissions
   const canEditAny = isAdmin;
-
   const canEditTask = (task) => {
     if (isAdmin) return true;
-    // members can edit/delete only their own tasks (Owner matches their name)
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
@@ -229,18 +225,16 @@ export default function App() {
     });
   }
 
-  // ✅ Login must go to /api/* to trigger Access (your Access app protects /api/*)
   function handleLogin() {
+    // must hit /api/* so Access triggers OTP
     window.location.href = "/api/login?redirectTo=/";
   }
 
-  // ✅ Logout must also go through /api/* so Access always handles it
   function handleLogout() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
   }
 
-  // ✅ Export CSV
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCSV(`tasks_${stamp}.csv`, tasks);
@@ -260,7 +254,7 @@ export default function App() {
 
               <div className="dtt-muted" style={{ marginTop: 6 }}>
                 Signed in: {userEmail || "Unknown"} ({role}
-                {userName ? `: ${userName}` : ""})
+                {userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
               </div>
             </div>
 
@@ -278,11 +272,10 @@ export default function App() {
                 </button>
               ) : (
                 <>
-                  <button className="dtt-btn" type="button" onClick={handleLogout}>
+                  <button className="dtt-btn" onClick={handleLogout}>
                     Logout
                   </button>
-
-                  <button className="dtt-btn" type="button" onClick={handleExportCSV}>
+                  <button className="dtt-btn" onClick={handleExportCSV}>
                     Export CSV
                   </button>
                 </>
@@ -318,17 +311,40 @@ export default function App() {
 
         {/* CONTENT */}
         <div className="dtt-card">
-          {tab === "dashboard" && <MiniDashboard counts={counts} theme={theme} />}
+          {tab === "dashboard" && (
+            <>
+              <MiniDashboard counts={counts} theme={theme} />
+              <div className="dtt-muted" style={{ marginTop: 12 }}>
+                Debug: tasks={tasks.length}, authed={String(isAuthed)}
+              </div>
+            </>
+          )}
 
           {tab === "tasks" && (
-            <TaskTable
-              tasks={tasks}
-              theme={theme}
-              onDelete={onDelete}
-              onUpdateTask={onUpdateTask}
-              canEditAny={canEditAny}
-              canEditTask={canEditTask}
-            />
+            <>
+              {tasks.length === 0 ? (
+                <div className="dtt-muted">
+                  No tasks yet. Click <b>+ New Task</b> to create one.
+                </div>
+              ) : (
+                <Safe
+                  fallback={
+                    <div className="dtt-muted">
+                      Task table failed to render. (Check TaskTable.jsx imports/exports)
+                    </div>
+                  }
+                >
+                  <TaskTable
+                    tasks={tasks}
+                    theme={theme}
+                    onDelete={onDelete}
+                    onUpdateTask={onUpdateTask}
+                    canEditAny={canEditAny}
+                    canEditTask={canEditTask}
+                  />
+                </Safe>
+              )}
+            </>
           )}
         </div>
 
