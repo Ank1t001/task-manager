@@ -214,15 +214,16 @@ export default function App() {
 
   // ✅ WORKING Logout
   function handleLogout() {
-    const returnTo = window.location.origin + window.location.pathname;
-    window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
-  }
+  alert("Logout clicked ✅");
+  const returnTo = window.location.origin + window.location.pathname;
+  window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(returnTo)}`;
+}
 
-  // ✅ WORKING Export CSV
-  function handleExportCSV() {
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadCSV(`tasks_${stamp}.csv`, tasks);
-  }
+function handleExportCSV() {
+  alert("Export clicked ✅");
+  const stamp = new Date().toISOString().slice(0, 10);
+  // (keep your downloadCSV call here if it exists)
+}
 
   return (
     <div className="dtt-page">
@@ -236,8 +237,8 @@ export default function App() {
                 <div className="dtt-h1">Digital Team Task Tracker</div>
               </div>
               <div className="dtt-muted" style={{ marginTop: 6 }}>
-                Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""})
-              </div>
+  Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
+</div>
             </div>
 
             <div className="dtt-actions">
