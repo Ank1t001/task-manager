@@ -241,9 +241,9 @@ export default function App() {
   }
 
   function handleLogin() {
-    // Access protects /api/*, so go there to trigger OTP
-    window.location.href = "/api/login?redirectTo=/";
-  }
+  const returnTo = window.location.origin + "/";
+  window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
 
   function handleLogout() {
   const returnTo = window.location.origin + "/";
