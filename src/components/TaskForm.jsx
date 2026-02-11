@@ -5,8 +5,9 @@ import { SECTION_OPTIONS } from "../config/sections";
 export default function TaskForm({ onSubmit, onCancel }) {
   const [form, setForm] = useState({
     taskName: "",
+    description: "", // ✅ NEW
     owner: OWNER_OPTIONS?.[0] || "Ankit",
-    section: SECTION_OPTIONS?.[0] || "Other", // stored key stays "section" for compatibility
+    section: SECTION_OPTIONS?.[0] || "Other", // UI label: Type
     priority: "Medium",
     dueDate: "",
     status: "To Do",
@@ -33,6 +34,19 @@ export default function TaskForm({ onSubmit, onCancel }) {
           onChange={(e) => update("taskName", e.target.value)}
           placeholder="Enter task name"
           autoFocus
+        />
+      </div>
+
+      {/* ✅ NEW: Task Description */}
+      <div style={{ display: "grid", gap: 8 }}>
+        <label style={{ fontWeight: 900 }}>Task Description</label>
+        <textarea
+          className="dtt-input"
+          value={form.description}
+          onChange={(e) => update("description", e.target.value)}
+          placeholder="Add details, context, links, requirements..."
+          rows={3}
+          style={{ resize: "vertical", minHeight: 90 }}
         />
       </div>
 

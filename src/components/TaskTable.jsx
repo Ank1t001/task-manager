@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 function badgeStyleForPriority(priority = "") {
   const p = String(priority).trim().toLowerCase();
 
-  // Default base
   const base = {
     padding: "6px 10px",
     borderRadius: 999,
@@ -15,6 +14,7 @@ function badgeStyleForPriority(priority = "") {
     gap: 6,
   };
 
+  // High = Red, Medium = Yellow, Low = Green
   if (p === "high") {
     return {
       ...base,
@@ -22,7 +22,6 @@ function badgeStyleForPriority(priority = "") {
       background: "rgba(255, 80, 80, 0.14)",
     };
   }
-
   if (p === "medium") {
     return {
       ...base,
@@ -30,7 +29,6 @@ function badgeStyleForPriority(priority = "") {
       background: "rgba(255, 200, 0, 0.14)",
     };
   }
-
   if (p === "low") {
     return {
       ...base,
@@ -84,6 +82,7 @@ export default function TaskTable({
       const matchesQuery =
         !q ||
         (t.taskName || "").toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q) ||
         (t.section || "").toLowerCase().includes(q) ||
         (t.externalStakeholders || "").toLowerCase().includes(q);
 
@@ -115,10 +114,10 @@ export default function TaskTable({
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             className="dtt-input"
-            placeholder="Search tasks, type, stakeholders..."
+            placeholder="Search tasks, description, type, stakeholders..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            style={{ width: 320 }}
+            style={{ width: 360 }}
           />
 
           <select
@@ -192,8 +191,15 @@ export default function TaskTable({
               return (
                 <tr key={t.id || idx}>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ fontWeight: 900 }}>{t.taskName || "(No task name)"}</div>
-                    <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                    <div style={{ fontWeight: 950 }}>{t.taskName || "(No task name)"}</div>
+
+                    {t.description ? (
+                      <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>
+                        {t.description}
+                      </div>
+                    ) : null}
+
+                    <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
                       Created: {t.createdAt ? new Date(t.createdAt).toLocaleString() : "-"}
                     </div>
                   </td>

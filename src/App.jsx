@@ -6,13 +6,14 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v7.3-metrics-rules";
+const BUILD_VERSION = "v7.4-desc-type-priority-metrics";
 
-// Email -> Display name mapping (adjust as needed)
+// Email -> Display name mapping
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
   "ankit@equiton.com": "Ankit",
   "sheel@equiton.com": "Sheel",
+  "sheelp@equiton.com": "Sheel",
   "aditi@equiton.com": "Aditi",
   "jacob@equiton.com": "Jacob",
   "vanessa@equiton.com": "Vanessa",
@@ -22,11 +23,10 @@ const TEAM_MAP = {
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
 /** -----------------------------
- *  Task + Status Normalization
+ *  Dashboard metric rules helpers
  *  ----------------------------- */
 function statusKey(status = "") {
-  // Normalizes: "To-do", "To Do", "to do" => "todo"
-  //            "In progress", "In Progress" => "inprogress"
+  // "To-do", "To Do" -> "todo" | "In progress" -> "inprogress"
   return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
 }
 
@@ -37,17 +37,15 @@ function startOfToday() {
 }
 
 function dueDateAsDate(dueDate) {
-  // dueDate expected "YYYY-MM-DD"
-  if (!dueDate) return null;
+  if (!dueDate) return null; // YYYY-MM-DD
   const d = new Date(`${dueDate}T00:00:00`);
   return isNaN(d.getTime()) ? null : d;
 }
 
 function isPastDue(task) {
-  // "yesterday or earlier"
   const due = dueDateAsDate(task?.dueDate);
-  if (!due) return false; // no due date => not overdue per your definition
-  return due < startOfToday();
+  if (!due) return false; // no due date => NOT overdue
+  return due < startOfToday(); // yesterday or earlier
 }
 
 function isOverdueBucket(task) {
@@ -57,7 +55,7 @@ function isOverdueBucket(task) {
 }
 
 function computeDashboardCounts(taskList) {
-  // Critical Rule: past due + (todo/inprogress/blocked) MUST be counted as overdue and excluded elsewhere
+  // Critical Rule: past due + (todo/inprogress/blocked) MUST be overdue and excluded elsewhere
   let overdue = 0;
   let inProgress = 0;
   let blocked = 0;
@@ -68,7 +66,7 @@ function computeDashboardCounts(taskList) {
 
     if (isOverdueBucket(t)) {
       overdue++;
-      continue; // do NOT count in other buckets
+      continue;
     }
 
     if (s === "done") {
@@ -76,12 +74,9 @@ function computeDashboardCounts(taskList) {
       continue;
     }
 
-    // Only count in-progress/blocked if NOT overdue.
-    // Requirement says due date today/future (NOT overdue). Since "not overdue" is satisfied here,
-    // tasks with empty due dates will be counted in their status bucket.
-    // If you want to require a due date for these, tell me and I’ll adjust.
+    // Due date is today/future (NOT overdue) OR empty (not overdue) — counts here.
     if (s === "inprogress") inProgress++;
-    if (s === "blocked") blocked++;
+    else if (s === "blocked") blocked++;
   }
 
   return { overdue, inProgress, blocked, done };
@@ -94,8 +89,7 @@ function migrateTask(t) {
   const taskName = t.taskName ?? t.title ?? "";
   const s = statusKey(t.status);
 
-  // Normalize to consistent display values (optional)
-  // Keeping your stored values mostly as-is, but we handle dashboard logic with statusKey().
+  // Keep stored status flexible; dashboard uses statusKey()
   let status = t.status || "To Do";
   if (s === "open") status = "To Do"; // legacy
 
@@ -103,8 +97,9 @@ function migrateTask(t) {
     ...t,
     id: t.id || crypto.randomUUID(),
     taskName,
+    description: t.description || t.taskDescription || "", // ✅ NEW
     owner: t.owner || "Ankit",
-    section: t.section || "Other",
+    section: t.section || "Other", // UI label = Type; stored key stays section
     priority: t.priority || "Medium",
     dueDate: t.dueDate || "",
     status,
@@ -132,6 +127,7 @@ function saveTasks(tasks) {
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
+    "Task Description",
     "Owner",
     "Type",
     "Priority",
@@ -152,8 +148,9 @@ function downloadCSV(filename, rows) {
     ...rows.map((t) =>
       [
         t.taskName,
+        t.description,
         t.owner,
-        t.section,
+        t.section, // Type
         t.priority,
         t.dueDate,
         t.status,
@@ -194,12 +191,12 @@ export default function App() {
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // Persist tasks
+  // Save tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // One-time migrate tasks on mount
+  // One-time migrate stored tasks
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
@@ -210,7 +207,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Identity from /api/me (returns 401 if not authed)
+  // Identity from /api/me
   useEffect(() => {
     let alive = true;
 
@@ -257,7 +254,7 @@ export default function App() {
   }, []);
 
   /** -----------------------------
-   *  Dashboard counts (NEW RULES)
+   *  Dashboards: Team vs My Tasks
    *  ----------------------------- */
   const teamCounts = useMemo(() => computeDashboardCounts(tasks), [tasks]);
 
