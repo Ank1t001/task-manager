@@ -11,12 +11,12 @@ const BUILD_VERSION = "v7.2.5";
 // Email -> Display name mapping (adjust if needed)
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
-  "ankit@equiton.com": "Ankit",
-  "sheel@equiton.com": "Sheel",
-  "aditi@equiton.com": "Aditi",
-  "jacob@equiton.com": "Jacob",
-  "vanessa@equiton.com": "Vanessa",
-  "mandeep@equiton.com": "Mandeep",
+  "AKumar@equiton.com": "Ankit",
+  "SPatel@equiton.com": "Sheel",
+  "ASharma@equiton.com": "Aditi",
+  "JIlton@equiton.com": "Jacob",
+  "VEbhohimhen@equiton.com": "Vanessa",
+  "MSuri@equiton.com": "Mandeep",
 };
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
@@ -246,9 +246,9 @@ export default function App() {
   }
 
   function handleLogout() {
-    const returnTo = window.location.origin + "/";
-    window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
-  }
+  const returnTo = window.location.origin + "/";
+  window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
+}
 
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
