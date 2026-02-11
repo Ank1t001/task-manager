@@ -1,20 +1,49 @@
 import { useMemo, useState } from "react";
 
-function Badge({ children }) {
-  return (
-    <span
-      style={{
-        padding: "6px 10px",
-        borderRadius: 999,
-        border: "1px solid var(--border)",
-        background: "rgba(255,255,255,0.06)",
-        fontWeight: 800,
-        fontSize: 12,
-      }}
-    >
-      {children}
-    </span>
-  );
+function badgeStyleForPriority(priority = "") {
+  const p = String(priority).trim().toLowerCase();
+
+  // Default base
+  const base = {
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    fontWeight: 900,
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  };
+
+  if (p === "high") {
+    return {
+      ...base,
+      borderColor: "rgba(255, 80, 80, 0.55)",
+      background: "rgba(255, 80, 80, 0.14)",
+    };
+  }
+
+  if (p === "medium") {
+    return {
+      ...base,
+      borderColor: "rgba(255, 200, 0, 0.55)",
+      background: "rgba(255, 200, 0, 0.14)",
+    };
+  }
+
+  if (p === "low") {
+    return {
+      ...base,
+      borderColor: "rgba(50, 205, 120, 0.55)",
+      background: "rgba(50, 205, 120, 0.14)",
+    };
+  }
+
+  return base;
+}
+
+function Badge({ children, style }) {
+  return <span style={style}>{children}</span>;
 }
 
 function IconBtn({ children, onClick, disabled, title }) {
@@ -24,10 +53,7 @@ function IconBtn({ children, onClick, disabled, title }) {
       onClick={onClick}
       disabled={disabled}
       className="dtt-btn"
-      style={{
-        padding: "8px 10px",
-        opacity: disabled ? 0.5 : 1,
-      }}
+      style={{ padding: "8px 10px", opacity: disabled ? 0.5 : 1 }}
       type="button"
     >
       {children}
@@ -71,11 +97,7 @@ export default function TaskTable({
   function setStatus(task, nextStatus) {
     if (!task?.id) return;
     if (!(canEditAny || canEditTask?.(task))) return;
-
-    onUpdateTask?.({
-      ...task,
-      status: nextStatus,
-    });
+    onUpdateTask?.({ ...task, status: nextStatus });
   }
 
   return (
@@ -93,7 +115,7 @@ export default function TaskTable({
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             className="dtt-input"
-            placeholder="Search tasks, section, stakeholders..."
+            placeholder="Search tasks, type, stakeholders..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{ width: 320 }}
@@ -126,7 +148,9 @@ export default function TaskTable({
           </select>
         </div>
 
-        <Badge>{filtered.length} shown</Badge>
+        <span style={{ color: "var(--muted)", fontWeight: 900 }}>
+          {filtered.length} shown
+        </span>
       </div>
 
       {/* Table */}
@@ -141,7 +165,7 @@ export default function TaskTable({
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
           <thead>
             <tr style={{ textAlign: "left" }}>
-              {["Task", "Owner", "Section", "Priority", "Due", "Status", "Stakeholders", "Actions"].map(
+              {["Task", "Owner", "Type", "Priority", "Due", "Status", "Stakeholders", "Actions"].map(
                 (h) => (
                   <th
                     key={h}
@@ -183,7 +207,9 @@ export default function TaskTable({
                   </td>
 
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
-                    <Badge>{t.priority || "Medium"}</Badge>
+                    <Badge style={badgeStyleForPriority(t.priority)}>
+                      {t.priority || "Medium"}
+                    </Badge>
                   </td>
 
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
@@ -206,7 +232,14 @@ export default function TaskTable({
                   </td>
 
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div
+                      style={{
+                        maxWidth: 260,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
                       {t.externalStakeholders || "-"}
                     </div>
                   </td>

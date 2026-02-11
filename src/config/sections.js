@@ -1,10 +1,11 @@
 export const SECTION_OPTIONS = [
-  "Ads",
-  "Ad Copy / Content",
+  "Paid Media",
+  "SEO",
+  "Email / CRM",
   "Creative",
-  "Compliance Review",
-  "Landing Pages",
-  "CRM / Tracking",
-  "Reporting",
+  "Landing Page / CRO",
+  "Analytics / Tracking",
+  "Compliance",
+  "Partnerships",
   "Other",
 ];

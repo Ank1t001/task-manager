@@ -6,7 +6,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
   const [form, setForm] = useState({
     taskName: "",
     owner: OWNER_OPTIONS?.[0] || "Ankit",
-    section: SECTION_OPTIONS?.[0] || "Other",
+    section: SECTION_OPTIONS?.[0] || "Other", // stored key stays "section" for compatibility
     priority: "Medium",
     dueDate: "",
     status: "To Do",
@@ -53,7 +53,7 @@ export default function TaskForm({ onSubmit, onCancel }) {
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
-          <label style={{ fontWeight: 900 }}>Section</label>
+          <label style={{ fontWeight: 900 }}>Type</label>
           <select
             className="dtt-select"
             value={form.section}

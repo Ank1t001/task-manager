@@ -6,24 +6,98 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v7.2.5";
+const BUILD_VERSION = "v7.3-metrics-rules";
 
-// Email -> Display name mapping (adjust if needed)
+// Email -> Display name mapping (adjust as needed)
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
-  "AKumar@equiton.com": "Ankit",
-  "SPatel@equiton.com": "Sheel",
-  "ASharma@equiton.com": "Aditi",
-  "JIlton@equiton.com": "Jacob",
-  "VEbhohimhen@equiton.com": "Vanessa",
-  "MSuri@equiton.com": "Mandeep",
+  "ankit@equiton.com": "Ankit",
+  "sheel@equiton.com": "Sheel",
+  "aditi@equiton.com": "Aditi",
+  "jacob@equiton.com": "Jacob",
+  "vanessa@equiton.com": "Vanessa",
+  "mandeep@equiton.com": "Mandeep",
 };
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
+/** -----------------------------
+ *  Task + Status Normalization
+ *  ----------------------------- */
+function statusKey(status = "") {
+  // Normalizes: "To-do", "To Do", "to do" => "todo"
+  //            "In progress", "In Progress" => "inprogress"
+  return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
+}
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function dueDateAsDate(dueDate) {
+  // dueDate expected "YYYY-MM-DD"
+  if (!dueDate) return null;
+  const d = new Date(`${dueDate}T00:00:00`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function isPastDue(task) {
+  // "yesterday or earlier"
+  const due = dueDateAsDate(task?.dueDate);
+  if (!due) return false; // no due date => not overdue per your definition
+  return due < startOfToday();
+}
+
+function isOverdueBucket(task) {
+  const s = statusKey(task?.status);
+  const active = s === "todo" || s === "inprogress" || s === "blocked";
+  return active && isPastDue(task);
+}
+
+function computeDashboardCounts(taskList) {
+  // Critical Rule: past due + (todo/inprogress/blocked) MUST be counted as overdue and excluded elsewhere
+  let overdue = 0;
+  let inProgress = 0;
+  let blocked = 0;
+  let done = 0;
+
+  for (const t of taskList) {
+    const s = statusKey(t?.status);
+
+    if (isOverdueBucket(t)) {
+      overdue++;
+      continue; // do NOT count in other buckets
+    }
+
+    if (s === "done") {
+      done++;
+      continue;
+    }
+
+    // Only count in-progress/blocked if NOT overdue.
+    // Requirement says due date today/future (NOT overdue). Since "not overdue" is satisfied here,
+    // tasks with empty due dates will be counted in their status bucket.
+    // If you want to require a due date for these, tell me and I’ll adjust.
+    if (s === "inprogress") inProgress++;
+    if (s === "blocked") blocked++;
+  }
+
+  return { overdue, inProgress, blocked, done };
+}
+
+/** -----------------------------
+ *  Task storage + migration
+ *  ----------------------------- */
 function migrateTask(t) {
   const taskName = t.taskName ?? t.title ?? "";
-  const status = t.status === "Open" ? "To Do" : (t.status || "To Do");
+  const s = statusKey(t.status);
+
+  // Normalize to consistent display values (optional)
+  // Keeping your stored values mostly as-is, but we handle dashboard logic with statusKey().
+  let status = t.status || "To Do";
+  if (s === "open") status = "To Do"; // legacy
 
   return {
     ...t,
@@ -55,19 +129,11 @@ function saveTasks(tasks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
 }
 
-function isOverdue(task) {
-  if (!task?.dueDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(task.dueDate + "T00:00:00");
-  return due < today && task.status !== "Done";
-}
-
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
     "Owner",
-    "Section",
+    "Type",
     "Priority",
     "Due Date",
     "Status",
@@ -122,16 +188,18 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
+  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
+  // Persist tasks
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
 
-  // one-time migrate stored tasks
+  // One-time migrate tasks on mount
   useEffect(() => {
     const normalized = tasks.map(migrateTask);
     const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
@@ -142,7 +210,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // identity from /api/me (returns 401 if not authed)
+  // Identity from /api/me (returns 401 if not authed)
   useEffect(() => {
     let alive = true;
 
@@ -188,36 +256,25 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Overall Team counts
-  const teamCounts = useMemo(() => {
-    return {
-      overdue: tasks.filter((t) => isOverdue(t)).length,
-      inProgress: tasks.filter((t) => t.status === "In Progress").length,
-      blocked: tasks.filter((t) => t.status === "Blocked").length,
-      done: tasks.filter((t) => t.status === "Done").length,
-    };
-  }, [tasks]);
+  /** -----------------------------
+   *  Dashboard counts (NEW RULES)
+   *  ----------------------------- */
+  const teamCounts = useMemo(() => computeDashboardCounts(tasks), [tasks]);
 
-  // ✅ My tasks (owner === userName)
   const myTasks = useMemo(() => {
     const me = (userName || "").trim();
     if (!me) return [];
     return tasks.filter((t) => (t.owner || "").trim() === me);
   }, [tasks, userName]);
 
-  const myCounts = useMemo(() => {
-    return {
-      overdue: myTasks.filter((t) => isOverdue(t)).length,
-      inProgress: myTasks.filter((t) => t.status === "In Progress").length,
-      blocked: myTasks.filter((t) => t.status === "Blocked").length,
-      done: myTasks.filter((t) => t.status === "Done").length,
-    };
-  }, [myTasks]);
+  const myCounts = useMemo(() => computeDashboardCounts(myTasks), [myTasks]);
 
+  /** -----------------------------
+   *  Permissions (Rule A)
+   *  ----------------------------- */
   const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
-
-  // Rule A permissions
   const canEditAny = isAdmin;
+
   const canEditTask = (task) => {
     if (isAdmin) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
@@ -240,15 +297,18 @@ export default function App() {
     });
   }
 
+  /** -----------------------------
+   *  Auth actions
+   *  ----------------------------- */
   function handleLogin() {
-  const returnTo = window.location.origin + "/";
-  window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
-}
+    const returnTo = window.location.origin + "/";
+    window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
+  }
 
   function handleLogout() {
-  const returnTo = window.location.origin + "/";
-  window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
-}
+    const returnTo = window.location.origin + "/";
+    window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
+  }
 
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
@@ -336,7 +396,7 @@ export default function App() {
                 </div>
               </div>
 
-              <MiniDashboard title="Overall Team" counts={teamCounts} theme={theme} />
+              <MiniDashboard counts={teamCounts} theme={theme} />
 
               {/* My Tasks */}
               <div className="dtt-card" style={{ padding: 14 }}>
@@ -348,7 +408,7 @@ export default function App() {
                 </div>
               </div>
 
-<MiniDashboard title="My Tasks" counts={myCounts} theme={theme} />
+              <MiniDashboard counts={myCounts} theme={theme} />
 
               <div className="dtt-muted" style={{ marginTop: 2 }}>
                 Debug: tasks={tasks.length}, myTasks={myTasks.length}, authed={String(isAuthed)}
