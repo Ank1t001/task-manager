@@ -6,7 +6,7 @@ import Modal from "./components/Modal";
 
 const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v7.4-desc-type-priority-metrics";
+const BUILD_VERSION = "v7.4.1";
 
 // Email -> Display name mapping
 const TEAM_MAP = {
