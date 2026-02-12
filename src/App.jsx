@@ -4,15 +4,13 @@ import TaskTable from "./components/TaskTable";
 import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
-const STORAGE_KEY = "digital_team_task_tracker_v3";
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v7.4.1";
+const BUILD_VERSION = "v8.0-d1-backed";
 
 // Email -> Display name mapping
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
   "ankit@equiton.com": "Ankit",
-  "sheel@equiton.com": "Sheel",
   "sheelp@equiton.com": "Sheel",
   "aditi@equiton.com": "Aditi",
   "jacob@equiton.com": "Jacob",
@@ -74,7 +72,7 @@ function computeDashboardCounts(taskList) {
       continue;
     }
 
-    // Due date is today/future (NOT overdue) OR empty (not overdue) — counts here.
+    // Not overdue (today/future or empty dueDate)
     if (s === "inprogress") inProgress++;
     else if (s === "blocked") blocked++;
   }
@@ -83,52 +81,51 @@ function computeDashboardCounts(taskList) {
 }
 
 /** -----------------------------
- *  Task storage + migration
+ *  Map DB row <-> UI task object
+ *  DB uses: type
+ *  UI uses: section (label shown as "Type" in UI)
  *  ----------------------------- */
-function migrateTask(t) {
-  const taskName = t.taskName ?? t.title ?? "";
-  const s = statusKey(t.status);
-
-  // Keep stored status flexible; dashboard uses statusKey()
-  let status = t.status || "To Do";
-  if (s === "open") status = "To Do"; // legacy
-
+function dbRowToUiTask(row) {
   return {
-    ...t,
-    id: t.id || crypto.randomUUID(),
-    taskName,
-    description: t.description || t.taskDescription || "", // ✅ NEW
-    owner: t.owner || "Ankit",
-    section: t.section || "Other", // UI label = Type; stored key stays section
-    priority: t.priority || "Medium",
-    dueDate: t.dueDate || "",
-    status,
-    externalStakeholders: t.externalStakeholders || "",
-    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
-    createdAt: t.createdAt || new Date().toISOString(),
-    updatedAt: t.updatedAt || "",
+    id: row.id,
+    taskName: row.taskName || "",
+    description: row.description || "",
+    owner: row.owner || "Ankit",
+    ownerEmail: row.ownerEmail || "",
+    section: row.type || "Other", // map DB type -> UI section
+    priority: row.priority || "Medium",
+    status: row.status || "To Do",
+    dueDate: row.dueDate || "",
+    externalStakeholders: row.externalStakeholders || "",
+    createdAt: row.createdAt || "",
+    updatedAt: row.updatedAt || "",
   };
 }
 
-function loadTasks() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map(migrateTask) : [];
-  } catch {
-    return [];
-  }
+function uiTaskToDbPayload(task) {
+  return {
+    id: task.id,
+    taskName: task.taskName || "",
+    description: task.description || "",
+    owner: task.owner || "",
+    ownerEmail: task.ownerEmail || "",
+    type: task.section || "Other", // map UI section -> DB type
+    priority: task.priority || "Medium",
+    status: task.status || "To Do",
+    dueDate: task.dueDate || "",
+    externalStakeholders: task.externalStakeholders || "",
+  };
 }
 
-function saveTasks(tasks) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-}
-
+/** -----------------------------
+ *  CSV Export
+ *  ----------------------------- */
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
     "Task Description",
     "Owner",
+    "Owner Email",
     "Type",
     "Priority",
     "Due Date",
@@ -150,6 +147,7 @@ function downloadCSV(filename, rows) {
         t.taskName,
         t.description,
         t.owner,
+        t.ownerEmail,
         t.section, // Type
         t.priority,
         t.dueDate,
@@ -177,7 +175,7 @@ function downloadCSV(filename, rows) {
 export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
   const [tab, setTab] = useState("dashboard");
-  const [tasks, setTasks] = useState(loadTasks);
+  const [tasks, setTasks] = useState([]);
   const [showModal, setShowModal] = useState(false);
 
   const [userEmail, setUserEmail] = useState("");
@@ -185,29 +183,18 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [tasksError, setTasksError] = useState("");
+
   // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  // Save tasks
-  useEffect(() => {
-    saveTasks(tasks);
-  }, [tasks]);
-
-  // One-time migrate stored tasks
-  useEffect(() => {
-    const normalized = tasks.map(migrateTask);
-    const changed = JSON.stringify(normalized) !== JSON.stringify(tasks);
-    if (changed) {
-      setTasks(normalized);
-      saveTasks(normalized);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Identity from /api/me
+  /** -----------------------------
+   *  Identity from /api/me
+   *  ----------------------------- */
   useEffect(() => {
     let alive = true;
 
@@ -254,7 +241,84 @@ export default function App() {
   }, []);
 
   /** -----------------------------
-   *  Dashboards: Team vs My Tasks
+   *  Load tasks from D1 via /api/tasks
+   *  ----------------------------- */
+  async function loadTasks() {
+    try {
+      setLoadingTasks(true);
+      setTasksError("");
+
+      const res = await fetch("/api/tasks", { cache: "no-store" });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Failed to load tasks (${res.status}) ${txt}`);
+      }
+
+      const data = await res.json();
+      const uiTasks = Array.isArray(data) ? data.map(dbRowToUiTask) : [];
+      setTasks(uiTasks);
+    } catch (e) {
+      setTasks([]);
+      setTasksError(e?.message || "Failed to load tasks");
+    } finally {
+      setLoadingTasks(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** -----------------------------
+   *  CRUD helpers
+   *  ----------------------------- */
+  async function createTask(uiTask) {
+    const payload = uiTaskToDbPayload(uiTask);
+
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Create failed (${res.status}) ${txt}`);
+    }
+    await loadTasks();
+  }
+
+  async function updateTask(uiTask) {
+    const payload = uiTaskToDbPayload(uiTask);
+
+    const res = await fetch("/api/tasks", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Update failed (${res.status}) ${txt}`);
+    }
+    await loadTasks();
+  }
+
+  async function deleteTask(id) {
+    const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Delete failed (${res.status}) ${txt}`);
+    }
+    await loadTasks();
+  }
+
+  /** -----------------------------
+   *  Dashboard: Team vs My Tasks
    *  ----------------------------- */
   const teamCounts = useMemo(() => computeDashboardCounts(tasks), [tasks]);
 
@@ -277,26 +341,18 @@ export default function App() {
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  function onDelete(id) {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-  }
-
-  function onUpdateTask(updated) {
-    if (!updated?.id) return;
-    const nextUpdated = { ...migrateTask(updated), updatedAt: new Date().toISOString() };
-
-    setTasks((prev) => {
-      const idx = prev.findIndex((t) => t.id === nextUpdated.id);
-      if (idx === -1) return [nextUpdated, ...prev];
-      const next = [...prev];
-      next[idx] = nextUpdated;
-      return next;
-    });
-  }
-
   /** -----------------------------
-   *  Auth actions
+   *  UI event handlers
    *  ----------------------------- */
+  async function onDelete(id) {
+    await deleteTask(id);
+  }
+
+  async function onUpdateTask(updated) {
+    if (!updated?.id) return;
+    await updateTask(updated);
+  }
+
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -353,12 +409,14 @@ export default function App() {
                 </>
               )}
 
-              <span className="dtt-pill">{tasks.length} tasks</span>
+              <span className="dtt-pill">
+                {loadingTasks ? "Loading…" : `${tasks.length} tasks`}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* TABS */}
+        {/* Tabs */}
         <div className="dtt-tabsRow">
           <div className="dtt-tabs">
             <button
@@ -381,11 +439,16 @@ export default function App() {
           </button>
         </div>
 
-        {/* CONTENT */}
+        {/* Content */}
         <div className="dtt-card">
+          {tasksError ? (
+            <div className="dtt-muted">
+              <b>Tasks API Error:</b> {tasksError}
+            </div>
+          ) : null}
+
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
-              {/* Overall Team */}
               <div className="dtt-card" style={{ padding: 14 }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
@@ -395,7 +458,6 @@ export default function App() {
 
               <MiniDashboard counts={teamCounts} theme={theme} />
 
-              {/* My Tasks */}
               <div className="dtt-card" style={{ padding: 14 }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 950, fontSize: 16 }}>My Tasks</div>
@@ -415,7 +477,9 @@ export default function App() {
 
           {tab === "tasks" && (
             <>
-              {tasks.length === 0 ? (
+              {loadingTasks ? (
+                <div className="dtt-muted">Loading tasks…</div>
+              ) : tasks.length === 0 ? (
                 <div className="dtt-muted">No tasks yet. Click + New Task to create one.</div>
               ) : (
                 <TaskTable
@@ -430,7 +494,7 @@ export default function App() {
           )}
         </div>
 
-        {/* MODAL */}
+        {/* Modal */}
         <Modal
           open={showModal}
           title="Create a new task"
@@ -438,13 +502,17 @@ export default function App() {
           onClose={() => setShowModal(false)}
         >
           <TaskForm
-            onSubmit={(task) => {
-              const finalTask = migrateTask({
+            onSubmit={async (task) => {
+              // TaskForm gives: taskName, description, owner, section, priority, status, dueDate, externalStakeholders
+              // Build DB payload fields:
+              const ownerEmailGuess = ""; // optional; we will map from owner below
+              const ownerEmail = ownerEmailFromOwner(task.owner) || ownerEmailGuess;
+
+              await createTask({
                 ...task,
-                id: crypto.randomUUID(),
-                createdAt: new Date().toISOString(),
+                ownerEmail,
               });
-              setTasks((prev) => [finalTask, ...prev]);
+
               setShowModal(false);
               setTab("tasks");
             }}
@@ -454,4 +522,22 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+/** Owner -> Email mapping for DB writes.
+ *  Update these if emails differ.
+ */
+function ownerEmailFromOwner(owner) {
+  const o = String(owner || "").trim().toLowerCase();
+  if (!o) return "";
+
+  // Adjust to your real emails:
+  if (o === "ankit") return "ankit@digijabber.com";
+  if (o === "sheel") return "sheelp@equiton.com";
+  if (o === "aditi") return "aditi@equiton.com";
+  if (o === "jacob") return "jacob@equiton.com";
+  if (o === "vanessa") return "vanessa@equiton.com";
+  if (o === "mandeep") return "mandeep@equiton.com";
+
+  return "";
 }
