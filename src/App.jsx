@@ -3,9 +3,10 @@ import MiniDashboard from "./components/MiniDashboard";
 import TaskTable from "./components/TaskTable";
 import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
+import KanbanBoard from "./components/KanbanBoard";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v8.2-dashboard-date-range-no-blocked";
+const BUILD_VERSION = "v8.3-kanban-sortorder";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -20,14 +21,7 @@ const TEAM_MAP = {
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
-/** -----------------------------
- *  Metrics logic (NO BLOCKED TILE)
- *  - Overdue: past due + (To Do / In Progress / Blocked)
- *  - In Progress: In Progress AND not overdue
- *  - Blocked tasks (not overdue) are counted inside In Progress (since Blocked removed)
- *  - Done: status Done
- *  - Total: all tasks in the list
- *  ----------------------------- */
+/** ----- Metrics (Total, Overdue, In Progress, Done) ----- */
 function statusKey(status = "") {
   return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
 }
@@ -53,7 +47,6 @@ function isOverdueBucket(task) {
 }
 function computeDashboardCounts(taskList) {
   const total = taskList.length;
-
   let overdue = 0;
   let inProgress = 0;
   let done = 0;
@@ -65,28 +58,17 @@ function computeDashboardCounts(taskList) {
       overdue++;
       continue;
     }
-
     if (s === "done") {
       done++;
       continue;
     }
-
-    // Blocked removed → treat as In Progress (as long as NOT overdue)
-    if (s === "inprogress" || s === "blocked") {
-      inProgress++;
-      continue;
-    }
+    if (s === "inprogress" || s === "blocked") inProgress++;
   }
 
   return { total, overdue, inProgress, done };
 }
 
-/** -----------------------------
- *  DB row <-> UI mapping
- *  - DB uses: type
- *  - UI uses: section (label "Type")
- *  - Map Blocked -> In Progress so UI never shows "Blocked"
- *  ----------------------------- */
+/** ----- Status normalization (Blocked -> In Progress) ----- */
 function normalizeStatusForUI(status) {
   const s = statusKey(status);
   if (s === "blocked") return "In Progress";
@@ -96,6 +78,7 @@ function normalizeStatusForUI(status) {
   return status || "To Do";
 }
 
+/** ----- DB row <-> UI mapping (includes sortOrder) ----- */
 function dbRowToUiTask(row) {
   return {
     id: row.id,
@@ -108,15 +91,14 @@ function dbRowToUiTask(row) {
     status: normalizeStatusForUI(row.status),
     dueDate: row.dueDate || "",
     externalStakeholders: row.externalStakeholders || "",
+    sortOrder: row.sortOrder ?? 0,
     createdAt: row.createdAt || "",
     updatedAt: row.updatedAt || "",
   };
 }
 
 function uiTaskToDbPayload(task) {
-  // Ensure Blocked never gets written going forward
   const cleanedStatus = normalizeStatusForUI(task.status);
-
   return {
     id: task.id,
     taskName: task.taskName || "",
@@ -128,14 +110,11 @@ function uiTaskToDbPayload(task) {
     status: cleanedStatus,
     dueDate: task.dueDate || "",
     externalStakeholders: task.externalStakeholders || "",
+    sortOrder: task.sortOrder ?? 0,
   };
 }
 
-/** -----------------------------
- *  Date Range Filter helper
- *  - Filter uses dueDate field (YYYY-MM-DD)
- *  - If date range is set, tasks without dueDate are excluded
- *  ----------------------------- */
+/** ----- Date range helper (dueDate is YYYY-MM-DD) ----- */
 function inDateRange(dueDate, from, to) {
   if (!from && !to) return true;
   if (!dueDate) return false;
@@ -144,7 +123,7 @@ function inDateRange(dueDate, from, to) {
   return true;
 }
 
-/** CSV Export */
+/** ----- CSV Export ----- */
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
@@ -156,6 +135,7 @@ function downloadCSV(filename, rows) {
     "Due Date",
     "Status",
     "External Stakeholders",
+    "Sort Order",
     "Created At",
     "Updated At",
   ];
@@ -178,6 +158,7 @@ function downloadCSV(filename, rows) {
         t.dueDate,
         t.status,
         t.externalStakeholders,
+        t.sortOrder ?? 0,
         t.createdAt,
         t.updatedAt,
       ]
@@ -197,7 +178,7 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-/** Owner -> Email mapping used when creating tasks */
+/** Owner -> Email mapping for new tasks */
 function ownerEmailFromOwner(owner) {
   const o = String(owner || "").trim().toLowerCase();
   if (!o) return "";
@@ -225,14 +206,13 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // Global filters (apply to Tasks + Dashboard)
+  // Global filters
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All"); // Blocked removed from choices in TaskTable
+  const [statusFilter, setStatusFilter] = useState("All"); // To Do / In Progress / Done
   const [ownerFilter, setOwnerFilter] = useState("All");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
 
-  // Theme
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
@@ -284,7 +264,7 @@ export default function App() {
     };
   }, []);
 
-  /** Load tasks from D1 via /api/tasks */
+  /** Load tasks */
   async function loadTasks() {
     try {
       setLoadingTasks(true);
@@ -309,7 +289,6 @@ export default function App() {
 
   useEffect(() => {
     loadTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** CRUD */
@@ -320,10 +299,7 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Create failed (${res.status}) ${txt}`);
-    }
+    if (!res.ok) throw new Error("Create failed");
     await loadTasks();
   }
 
@@ -334,21 +310,13 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Update failed (${res.status}) ${txt}`);
-    }
+    if (!res.ok) throw new Error("Update failed");
     await loadTasks();
   }
 
   async function deleteTask(id) {
-    const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Delete failed (${res.status}) ${txt}`);
-    }
+    const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Delete failed");
     await loadTasks();
   }
 
@@ -358,7 +326,7 @@ export default function App() {
     return ["All", ...Array.from(set).sort()];
   }, [tasks]);
 
-  /** Base filtered tasks (query + status + date range) */
+  /** Base filtered tasks */
   const baseFilteredTasks = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -377,17 +345,14 @@ export default function App() {
     });
   }, [tasks, query, statusFilter, dueFrom, dueTo]);
 
-  /** Table filtered tasks (includes owner filter) */
+  /** Table/Kanban filtered tasks include owner filter */
   const tableFilteredTasks = useMemo(() => {
     if (ownerFilter === "All") return baseFilteredTasks;
     return baseFilteredTasks.filter((t) => t.owner === ownerFilter);
   }, [baseFilteredTasks, ownerFilter]);
 
   /** Dashboard counts */
-  const teamCounts = useMemo(
-    () => computeDashboardCounts(baseFilteredTasks),
-    [baseFilteredTasks]
-  );
+  const teamCounts = useMemo(() => computeDashboardCounts(baseFilteredTasks), [baseFilteredTasks]);
 
   const selectedOwner = useMemo(() => {
     if (ownerFilter !== "All") return ownerFilter;
@@ -413,7 +378,7 @@ export default function App() {
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  /** Auth handlers */
+  /** Auth */
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -447,31 +412,20 @@ export default function App() {
             </div>
 
             <div className="dtt-actions">
-              <button
-                className="dtt-btn"
-                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-              >
+              <button className="dtt-btn" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>
 
               {!isAuthed ? (
-                <button className="dtt-btnPrimary" onClick={handleLogin}>
-                  Login
-                </button>
+                <button className="dtt-btnPrimary" onClick={handleLogin}>Login</button>
               ) : (
                 <>
-                  <button className="dtt-btn" onClick={handleLogout}>
-                    Logout
-                  </button>
-                  <button className="dtt-btn" onClick={handleExportCSV}>
-                    Export CSV
-                  </button>
+                  <button className="dtt-btn" onClick={handleLogout}>Logout</button>
+                  <button className="dtt-btn" onClick={handleExportCSV}>Export CSV</button>
                 </>
               )}
 
-              <span className="dtt-pill">
-                {loadingTasks ? "Loading…" : `${tasks.length} tasks`}
-              </span>
+              <span className="dtt-pill">{loadingTasks ? "Loading…" : `${tasks.length} tasks`}</span>
             </div>
           </div>
         </div>
@@ -479,24 +433,20 @@ export default function App() {
         {/* Tabs */}
         <div className="dtt-tabsRow">
           <div className="dtt-tabs">
-            <button
-              className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("dashboard")}
-            >
+            <button className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`} onClick={() => setTab("dashboard")}>
               Dashboard
             </button>
 
-            <button
-              className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("tasks")}
-            >
+            <button className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`} onClick={() => setTab("tasks")}>
               Tasks
+            </button>
+
+            <button className={`dtt-tab ${tab === "kanban" ? "dtt-tabActive" : ""}`} onClick={() => setTab("kanban")}>
+              Kanban
             </button>
           </div>
 
-          <button className="dtt-btnPrimary" onClick={() => setShowModal(true)}>
-            + New Task
-          </button>
+          <button className="dtt-btnPrimary" onClick={() => setShowModal(true)}>+ New Task</button>
         </div>
 
         {/* Content */}
@@ -509,64 +459,10 @@ export default function App() {
 
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
-              {/* ✅ Date Range Filter bar above Overall Team */}
+              <MiniDashboard counts={teamCounts} theme={theme} />
+
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 950, fontSize: 16 }}>Date Range Filter</div>
-
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <input
-                      className="dtt-input"
-                      type="date"
-                      value={dueFrom}
-                      onChange={(e) => setDueFrom(e.target.value)}
-                      title="Due date from"
-                      style={{ width: 170 }}
-                    />
-                    <input
-                      className="dtt-input"
-                      type="date"
-                      value={dueTo}
-                      onChange={(e) => setDueTo(e.target.value)}
-                      title="Due date to"
-                      style={{ width: 170 }}
-                    />
-
-                    <button
-                      className="dtt-btn"
-                      type="button"
-                      onClick={() => {
-                        setDueFrom("");
-                        setDueTo("");
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                <div className="dtt-muted" style={{ marginTop: 8 }}>
-                  Applies to Dashboard tiles and Tasks view.
-                </div>
-              </div>
-
-              {/* Overall Team */}
-              <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
-                  <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
-                </div>
-                <div className="dtt-muted" style={{ marginTop: 6 }}>
-                  Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
-                  {query ? `, Search="${query}"` : ""}
-                </div>
-              </div>
-
-              <MiniDashboard counts={teamCounts} />
-
-              {/* My / Selected Owner */}
-              <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 950, fontSize: 16 }}>
                     {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
                   </div>
@@ -576,11 +472,7 @@ export default function App() {
                 </div>
               </div>
 
-              <MiniDashboard counts={selectedOwnerCounts} />
-
-              <div className="dtt-muted" style={{ marginTop: 2 }}>
-                Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, selectedOwner={selectedOwner || "—"}
-              </div>
+              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
             </div>
           )}
 
@@ -610,6 +502,21 @@ export default function App() {
               )}
             </>
           )}
+
+          {tab === "kanban" && (
+            <>
+              {loadingTasks ? (
+                <div className="dtt-muted">Loading tasks…</div>
+              ) : (
+                <KanbanBoard
+                  tasks={tableFilteredTasks}
+                  onUpdateTask={async (t) => updateTask(t)}
+                  canEditAny={canEditAny}
+                  canEditTask={canEditTask}
+                />
+              )}
+            </>
+          )}
         </div>
 
         {/* Modal */}
@@ -622,7 +529,7 @@ export default function App() {
           <TaskForm
             onSubmit={async (task) => {
               const ownerEmail = ownerEmailFromOwner(task.owner) || "";
-              await createTask({ ...task, ownerEmail });
+              await createTask({ ...task, ownerEmail, sortOrder: 0 });
               setShowModal(false);
               setTab("tasks");
             }}
