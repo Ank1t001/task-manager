@@ -52,12 +52,12 @@ function buildColumns(tasks) {
     cols[st].push({ ...t, status: st });
   }
 
+  // Order by sortOrder, then createdAt
   for (const key of Object.keys(cols)) {
     cols[key].sort((a, b) => {
       const ao = Number(a.sortOrder ?? 0);
       const bo = Number(b.sortOrder ?? 0);
       if (ao !== bo) return ao - bo;
-
       const ac = a.createdAt || "";
       const bc = b.createdAt || "";
       return bc.localeCompare(ac);
@@ -65,6 +65,13 @@ function buildColumns(tasks) {
   }
 
   return cols;
+}
+
+function priorityMeta(priority) {
+  const p = String(priority || "").trim().toLowerCase();
+  if (p === "high") return { label: "High", border: "rgba(239,68,68,0.55)", bg: "rgba(239,68,68,0.12)" };
+  if (p === "low") return { label: "Low", border: "rgba(34,197,94,0.55)", bg: "rgba(34,197,94,0.12)" };
+  return { label: "Medium", border: "rgba(245,158,11,0.55)", bg: "rgba(245,158,11,0.12)" };
 }
 
 export default function KanbanBoard({ tasks = [], onUpdateTask, canEditAny, canEditTask }) {
@@ -105,7 +112,6 @@ export default function KanbanBoard({ tasks = [], onUpdateTask, canEditAny, canE
   }
 
   function makeSortUpdates(colKey, orderedTasks, overrideStatus = null) {
-    // 10,20,30... gives us breathing room for future inserts
     return orderedTasks.map((t, i) => ({
       id: t.id,
       status: overrideStatus ?? t.status,
@@ -132,33 +138,25 @@ export default function KanbanBoard({ tasks = [], onUpdateTask, canEditAny, canE
 
     const overCol = getColKeyFromDroppableId(over.id);
     const overTaskRaw = taskById.get(String(over.id));
-
     const toCol = overCol || (overTaskRaw ? normalizeStatus(overTaskRaw.status) : null);
     if (!toCol) return;
 
-    // 1) Reorder within same column
+    // reorder within same column
     if (fromCol === toCol) {
       const colArr = columns[fromCol];
-
       const oldIndex = colArr.findIndex((t) => String(t.id) === String(active.id));
       const newIndex = colArr.findIndex((t) => String(t.id) === String(over.id));
-
-      // If dropped on the column container (not on a card), do nothing
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
 
       const nextArr = arrayMove(colArr, oldIndex, newIndex);
-
-      // Update UI immediately
       setColumns((prev) => ({ ...prev, [fromCol]: nextArr }));
 
-      // Persist sortOrder
       const updates = makeSortUpdates(fromCol, nextArr);
       await persistReorder(updates);
-
       return;
     }
 
-    // 2) Move across columns
+    // move across columns
     const fromArr = columns[fromCol];
     const toArr = columns[toCol];
 
@@ -167,7 +165,6 @@ export default function KanbanBoard({ tasks = [], onUpdateTask, canEditAny, canE
 
     const nextFrom = fromArr.filter((t) => String(t.id) !== String(active.id));
 
-    // insert before hovered card if any, otherwise at end
     let insertIndex = toArr.length;
     if (overTaskRaw) {
       const idx = toArr.findIndex((t) => String(t.id) === String(overTaskRaw.id));
@@ -177,33 +174,27 @@ export default function KanbanBoard({ tasks = [], onUpdateTask, canEditAny, canE
     const movedTask = { ...moving, status: toCol };
     const nextTo = [...toArr.slice(0, insertIndex), movedTask, ...toArr.slice(insertIndex)];
 
-    setColumns((prev) => ({
-      ...prev,
-      [fromCol]: nextFrom,
-      [toCol]: nextTo,
-    }));
+    setColumns((prev) => ({ ...prev, [fromCol]: nextFrom, [toCol]: nextTo }));
 
-    // Persist both columns
     const updates = [
       ...makeSortUpdates(fromCol, nextFrom),
       ...makeSortUpdates(toCol, nextTo, toCol),
     ];
-
     await persistReorder(updates);
 
-    // Optional: ensure DB gets status update even if reorder endpoint succeeded (safe redundancy)
+    // safe redundancy
     await onUpdateTask?.({ ...activeTaskRaw, status: toCol });
   }
 
   return (
-    <div style={{ display: "grid", gap: 14 }}>
+    <div style={ui.wrap}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
+        <div style={ui.grid}>
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col.key}
@@ -229,21 +220,28 @@ function KanbanColumn({ columnKey, title, tasks, canMove }) {
   const droppableId = colId(columnKey);
 
   return (
-    <div className="dtt-card" style={{ padding: 14, minHeight: 520 }}>
-      <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 10 }}>
-        {title} <span className="dtt-muted">({tasks.length})</span>
+    <div style={ui.col}>
+      <div style={ui.colHeader}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <div style={ui.colTitle}>{title}</div>
+          <span style={ui.count}>{tasks.length}</span>
+        </div>
+        <div style={ui.colHint}>Drag & drop cards</div>
       </div>
 
       <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
         <DroppableColumn id={droppableId}>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div style={ui.colBody}>
             {tasks.map((t) => (
               <SortableTaskCard key={t.id} task={t} disabled={!canMove(t)} />
             ))}
 
             {tasks.length === 0 ? (
-              <div className="dtt-muted" style={{ padding: 10 }}>
-                Drop tasks here
+              <div style={ui.empty}>
+                <div style={{ fontWeight: 900 }}>Drop tasks here</div>
+                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+                  Column is empty
+                </div>
               </div>
             ) : null}
           </div>
@@ -254,7 +252,6 @@ function KanbanColumn({ columnKey, title, tasks, canMove }) {
 }
 
 function DroppableColumn({ id, children }) {
-  // lightweight droppable anchor (works even when column is empty)
   const { setNodeRef } = useSortable({ id, disabled: true });
   return (
     <div ref={setNodeRef} style={{ minHeight: 420 }}>
@@ -273,7 +270,7 @@ function SortableTaskCard({ task, disabled }) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0.45 : 1,
     cursor: disabled ? "not-allowed" : "grab",
   };
 
@@ -285,35 +282,156 @@ function SortableTaskCard({ task, disabled }) {
 }
 
 function TaskCard({ task, overlay = false, disabled = false }) {
+  const pri = priorityMeta(task.priority);
+  const due = task.dueDate ? task.dueDate : "No due date";
+
   return (
     <div
       style={{
-        border: "1px solid var(--border)",
-        borderRadius: 14,
-        padding: 12,
-        background: overlay ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.03)",
-        boxShadow: overlay ? "0 16px 30px rgba(0,0,0,0.18)" : "none",
+        ...ui.card,
+        ...(overlay ? ui.cardOverlay : null),
+        ...(disabled ? ui.cardLocked : null),
       }}
     >
-      <div style={{ fontWeight: 950, display: "flex", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={ui.cardTop}>
+        <div style={ui.cardTitle} title={task.taskName || ""}>
           {task.taskName || "(No task name)"}
-        </span>
-        {disabled ? <span className="dtt-pill">Locked</span> : null}
+        </div>
+        {disabled ? <span style={ui.lockPill}>Locked</span> : null}
       </div>
 
       {task.description ? (
-        <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 12 }}>
-          {task.description}
-        </div>
+        <div style={ui.cardDesc}>{task.description}</div>
       ) : null}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-        <span className="dtt-pill">{task.owner || "—"}</span>
-        <span className="dtt-pill">{task.section || "Other"}</span>
-        <span className="dtt-pill">{task.priority || "Medium"}</span>
-        <span className="dtt-pill">{task.dueDate || "No due date"}</span>
+      <div style={ui.pills}>
+        <span style={ui.pill}>{task.owner || "—"}</span>
+        <span style={ui.pill}>{task.section || "Other"}</span>
+        <span style={{ ...ui.pill, borderColor: pri.border, background: pri.bg }}>
+          {pri.label}
+        </span>
+        <span style={ui.pill}>{due}</span>
       </div>
     </div>
   );
 }
+
+/** ---------- UI styles (clean, compact, scrollable columns) ---------- */
+const ui = {
+  wrap: { width: "100%" },
+
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 14,
+    alignItems: "start",
+  },
+
+  col: {
+    border: "1px solid var(--border)",
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.06)",
+    boxShadow: "0 14px 26px rgba(15,23,42,0.08)",
+    overflow: "hidden",
+    minHeight: 640,
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  colHeader: {
+    padding: 14,
+    borderBottom: "1px solid var(--border)",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.30), rgba(255,255,255,0.10))",
+  },
+
+  colTitle: { fontSize: 16, fontWeight: 1000 },
+
+  count: {
+    fontSize: 12,
+    fontWeight: 950,
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.18)",
+  },
+
+  colHint: { marginTop: 6, fontSize: 12, color: "var(--muted)" },
+
+  colBody: {
+    padding: 12,
+    display: "grid",
+    gap: 10,
+    overflowY: "auto",
+    maxHeight: 560, // ✅ scroll inside columns
+  },
+
+  empty: {
+    border: "1px dashed rgba(15,23,42,0.25)",
+    borderRadius: 14,
+    padding: 18,
+    textAlign: "center",
+    color: "var(--muted)",
+    background: "rgba(255,255,255,0.12)",
+  },
+
+  card: {
+    border: "1px solid var(--border)",
+    borderRadius: 16,
+    padding: 12,
+    background: "rgba(255,255,255,0.08)",
+  },
+
+  cardOverlay: {
+    background: "rgba(255,255,255,0.18)",
+    boxShadow: "0 18px 34px rgba(0,0,0,0.16)",
+  },
+
+  cardLocked: { opacity: 0.9 },
+
+  cardTop: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  cardTitle: {
+    fontWeight: 1000,
+    fontSize: 14,
+    lineHeight: "18px",
+    maxHeight: 36,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  cardDesc: {
+    marginTop: 6,
+    color: "var(--muted)",
+    fontSize: 12,
+    lineHeight: "16px",
+    maxHeight: 34,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  pills: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
+
+  pill: {
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    fontWeight: 900,
+    fontSize: 12,
+    background: "rgba(255,255,255,0.10)",
+  },
+
+  lockPill: {
+    padding: "4px 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(15,23,42,0.20)",
+    background: "rgba(15,23,42,0.06)",
+    fontSize: 12,
+    fontWeight: 950,
+  },
+};
