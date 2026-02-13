@@ -3,10 +3,34 @@ export default function MiniDashboard({ title, counts, theme = "dark" }) {
   const s = styles(dark);
 
   const items = [
-    { key: "overdue", label: "Overdue", value: counts?.overdue ?? 0, emoji: "🔴", accent: "red" },
-    { key: "inProgress", label: "In Progress", value: counts?.inProgress ?? 0, emoji: "⏳", accent: "amber" },
-    { key: "blocked", label: "Blocked", value: counts?.blocked ?? 0, emoji: "🚫", accent: "orange" },
-    { key: "done", label: "Done", value: counts?.done ?? 0, emoji: "✅", accent: "green" },
+    {
+      key: "total",
+      label: "Total Tasks",
+      value: counts?.total ?? 0,
+      emoji: "📌",
+      accent: "neutral",
+    },
+    {
+      key: "overdue",
+      label: "Overdue",
+      value: counts?.overdue ?? 0,
+      emoji: "🔴",
+      accent: "red",
+    },
+    {
+      key: "inProgress",
+      label: "In Progress",
+      value: counts?.inProgress ?? 0,
+      emoji: "⏳",
+      accent: "amber",
+    },
+    {
+      key: "done",
+      label: "Done",
+      value: counts?.done ?? 0,
+      emoji: "✅",
+      accent: "green",
+    },
   ];
 
   return (
@@ -32,7 +56,6 @@ export default function MiniDashboard({ title, counts, theme = "dark" }) {
   );
 }
 
-/* keep the rest of your functions styles() and sAccent() exactly same */
 function styles(dark) {
   return {
     grid: {
@@ -71,16 +94,16 @@ function styles(dark) {
 
 function sAccent(dark, accent) {
   const glow = {
+    neutral: dark ? "rgba(99,102,241,0.14)" : "rgba(99,102,241,0.10)", // subtle indigo
     red: dark ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.14)",
     amber: dark ? "rgba(245,158,11,0.18)" : "rgba(245,158,11,0.12)",
-    orange: dark ? "rgba(249,115,22,0.18)" : "rgba(249,115,22,0.12)",
     green: dark ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0.12)",
   }[accent];
 
   const stroke = {
+    neutral: "rgba(99,102,241,0.30)",
     red: "rgba(239,68,68,0.35)",
     amber: "rgba(245,158,11,0.35)",
-    orange: "rgba(249,115,22,0.35)",
     green: "rgba(34,197,94,0.35)",
   }[accent];
 

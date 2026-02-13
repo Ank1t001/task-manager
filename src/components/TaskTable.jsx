@@ -1,6 +1,5 @@
 function badgeStyleForPriority(priority = "") {
   const p = String(priority).trim().toLowerCase();
-
   const base = {
     padding: "6px 10px",
     borderRadius: 999,
@@ -11,30 +10,9 @@ function badgeStyleForPriority(priority = "") {
     alignItems: "center",
     gap: 6,
   };
-
-  // High = Red, Medium = Yellow, Low = Green
-  if (p === "high") {
-    return {
-      ...base,
-      borderColor: "rgba(255, 80, 80, 0.55)",
-      background: "rgba(255, 80, 80, 0.14)",
-    };
-  }
-  if (p === "medium") {
-    return {
-      ...base,
-      borderColor: "rgba(255, 200, 0, 0.55)",
-      background: "rgba(255, 200, 0, 0.14)",
-    };
-  }
-  if (p === "low") {
-    return {
-      ...base,
-      borderColor: "rgba(50, 205, 120, 0.55)",
-      background: "rgba(50, 205, 120, 0.14)",
-    };
-  }
-
+  if (p === "high") return { ...base, borderColor: "rgba(255, 80, 80, 0.55)", background: "rgba(255, 80, 80, 0.14)" };
+  if (p === "medium") return { ...base, borderColor: "rgba(255, 200, 0, 0.55)", background: "rgba(255, 200, 0, 0.14)" };
+  if (p === "low") return { ...base, borderColor: "rgba(50, 205, 120, 0.55)", background: "rgba(50, 205, 120, 0.14)" };
   return base;
 }
 
@@ -64,7 +42,6 @@ export default function TaskTable({
   canEditAny,
   canEditTask,
 
-  // Controlled filters from App
   allOwnerOptions = ["All"],
   query,
   setQuery,
@@ -121,7 +98,6 @@ export default function TaskTable({
             <option value="All">All Status</option>
             <option value="To Do">To Do</option>
             <option value="In Progress">In Progress</option>
-            <option value="Blocked">Blocked</option>
             <option value="Done">Done</option>
           </select>
 
@@ -138,7 +114,6 @@ export default function TaskTable({
             ))}
           </select>
 
-          {/* ✅ Due date range filter */}
           <input
             className="dtt-input"
             type="date"
@@ -244,7 +219,6 @@ export default function TaskTable({
                     >
                       <option>To Do</option>
                       <option>In Progress</option>
-                      <option>Blocked</option>
                       <option>Done</option>
                     </select>
                   </td>

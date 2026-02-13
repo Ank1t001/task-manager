@@ -5,7 +5,7 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v8.1-d1-filters-dashboard-sync";
+const BUILD_VERSION = "v8.2-dashboard-date-range-no-blocked";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -21,7 +21,12 @@ const TEAM_MAP = {
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
 /** -----------------------------
- *  Dashboard metrics (your rules)
+ *  Metrics logic (NO BLOCKED TILE)
+ *  - Overdue: past due + (To Do / In Progress / Blocked)
+ *  - In Progress: In Progress AND not overdue
+ *  - Blocked tasks (not overdue) are counted inside In Progress (since Blocked removed)
+ *  - Done: status Done
+ *  - Total: all tasks in the list
  *  ----------------------------- */
 function statusKey(status = "") {
   return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
@@ -47,9 +52,10 @@ function isOverdueBucket(task) {
   return active && isPastDue(task);
 }
 function computeDashboardCounts(taskList) {
+  const total = taskList.length;
+
   let overdue = 0;
   let inProgress = 0;
-  let blocked = 0;
   let done = 0;
 
   for (const t of taskList) {
@@ -59,22 +65,37 @@ function computeDashboardCounts(taskList) {
       overdue++;
       continue;
     }
+
     if (s === "done") {
       done++;
       continue;
     }
-    if (s === "inprogress") inProgress++;
-    else if (s === "blocked") blocked++;
+
+    // Blocked removed → treat as In Progress (as long as NOT overdue)
+    if (s === "inprogress" || s === "blocked") {
+      inProgress++;
+      continue;
+    }
   }
 
-  return { overdue, inProgress, blocked, done };
+  return { total, overdue, inProgress, done };
 }
 
 /** -----------------------------
  *  DB row <-> UI mapping
- *  DB uses: type
- *  UI uses: section (label: Type)
+ *  - DB uses: type
+ *  - UI uses: section (label "Type")
+ *  - Map Blocked -> In Progress so UI never shows "Blocked"
  *  ----------------------------- */
+function normalizeStatusForUI(status) {
+  const s = statusKey(status);
+  if (s === "blocked") return "In Progress";
+  if (s === "inprogress") return "In Progress";
+  if (s === "todo") return "To Do";
+  if (s === "done") return "Done";
+  return status || "To Do";
+}
+
 function dbRowToUiTask(row) {
   return {
     id: row.id,
@@ -84,7 +105,7 @@ function dbRowToUiTask(row) {
     ownerEmail: row.ownerEmail || "",
     section: row.type || "Other",
     priority: row.priority || "Medium",
-    status: row.status || "To Do",
+    status: normalizeStatusForUI(row.status),
     dueDate: row.dueDate || "",
     externalStakeholders: row.externalStakeholders || "",
     createdAt: row.createdAt || "",
@@ -93,6 +114,9 @@ function dbRowToUiTask(row) {
 }
 
 function uiTaskToDbPayload(task) {
+  // Ensure Blocked never gets written going forward
+  const cleanedStatus = normalizeStatusForUI(task.status);
+
   return {
     id: task.id,
     taskName: task.taskName || "",
@@ -101,27 +125,26 @@ function uiTaskToDbPayload(task) {
     ownerEmail: task.ownerEmail || "",
     type: task.section || "Other",
     priority: task.priority || "Medium",
-    status: task.status || "To Do",
+    status: cleanedStatus,
     dueDate: task.dueDate || "",
     externalStakeholders: task.externalStakeholders || "",
   };
 }
 
 /** -----------------------------
- *  Filters
+ *  Date Range Filter helper
+ *  - Filter uses dueDate field (YYYY-MM-DD)
+ *  - If date range is set, tasks without dueDate are excluded
  *  ----------------------------- */
 function inDateRange(dueDate, from, to) {
-  // dates are YYYY-MM-DD strings (safe lexicographic compare)
   if (!from && !to) return true;
-  if (!dueDate) return false; // if filtering by date, exclude tasks without due date
+  if (!dueDate) return false;
   if (from && dueDate < from) return false;
   if (to && dueDate > to) return false;
   return true;
 }
 
-/** -----------------------------
- *  CSV Export
- *  ----------------------------- */
+/** CSV Export */
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
@@ -202,9 +225,9 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // ✅ Global filters (apply to Tasks tab + Dashboard)
+  // Global filters (apply to Tasks + Dashboard)
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All"); // Blocked removed from choices in TaskTable
   const [ownerFilter, setOwnerFilter] = useState("All");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
@@ -297,12 +320,10 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`Create failed (${res.status}) ${txt}`);
     }
-
     await loadTasks();
   }
 
@@ -313,12 +334,10 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`Update failed (${res.status}) ${txt}`);
     }
-
     await loadTasks();
   }
 
@@ -326,22 +345,20 @@ export default function App() {
     const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
-
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`Delete failed (${res.status}) ${txt}`);
     }
-
     await loadTasks();
   }
 
-  /** Owner options for dropdown */
+  /** Owner options */
   const ownerOptions = useMemo(() => {
     const set = new Set(tasks.map((t) => t.owner).filter(Boolean));
     return ["All", ...Array.from(set).sort()];
   }, [tasks]);
 
-  /** Base filtered tasks (query + status + due range) */
+  /** Base filtered tasks (query + status + date range) */
   const baseFilteredTasks = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -366,16 +383,12 @@ export default function App() {
     return baseFilteredTasks.filter((t) => t.owner === ownerFilter);
   }, [baseFilteredTasks, ownerFilter]);
 
-  /** Dashboard: Overall Team uses baseFilteredTasks (so owner filter doesn't hide the team totals) */
+  /** Dashboard counts */
   const teamCounts = useMemo(
     () => computeDashboardCounts(baseFilteredTasks),
     [baseFilteredTasks]
   );
 
-  /** Dashboard: Selected owner behavior
-   *  - If ownerFilter is set (Vanessa), show Vanessa dashboard
-   *  - Else show logged-in user's dashboard
-   */
   const selectedOwner = useMemo(() => {
     if (ownerFilter !== "All") return ownerFilter;
     return userName || "";
@@ -395,18 +408,16 @@ export default function App() {
   /** Permissions */
   const isAdminNow = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
   const canEditAny = isAdminNow;
-
   const canEditTask = (task) => {
     if (isAdminNow) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  /** Handlers */
+  /** Auth handlers */
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
   }
-
   function handleLogout() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
@@ -420,7 +431,7 @@ export default function App() {
   return (
     <div className="dtt-page">
       <div className="dtt-shell">
-        {/* HEADER */}
+        {/* Header */}
         <div className="dtt-card">
           <div className="dtt-titleRow" style={{ justifyContent: "space-between" }}>
             <div>
@@ -498,37 +509,64 @@ export default function App() {
 
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
-              {/* Overall Team */}
+              {/* ✅ Date Range Filter bar above Overall Team */}
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
-                  <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 950, fontSize: 16 }}>Date Range Filter</div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <input
+                      className="dtt-input"
+                      type="date"
+                      value={dueFrom}
+                      onChange={(e) => setDueFrom(e.target.value)}
+                      title="Due date from"
+                      style={{ width: 170 }}
+                    />
+                    <input
+                      className="dtt-input"
+                      type="date"
+                      value={dueTo}
+                      onChange={(e) => setDueTo(e.target.value)}
+                      title="Due date to"
+                      style={{ width: 170 }}
+                    />
+
+                    <button
+                      className="dtt-btn"
+                      type="button"
+                      onClick={() => {
+                        setDueFrom("");
+                        setDueTo("");
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
 
-                <div className="dtt-muted" style={{ marginTop: 6 }}>
-                  Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
-                  {query ? `, Search="${query}"` : ""}
-                  {ownerFilter !== "All" ? `, Owner=${ownerFilter} (table only)` : ""}
+                <div className="dtt-muted" style={{ marginTop: 8 }}>
+                  Applies to Dashboard tiles and Tasks view.
                 </div>
               </div>
 
-              <MiniDashboard counts={teamCounts} theme={theme} />
-
-              {/* Selected Owner (defaults to me) */}
+              {/* Overall Team */}
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                  }}
-                >
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
+                  <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
+                </div>
+                <div className="dtt-muted" style={{ marginTop: 6 }}>
+                  Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
+                  {query ? `, Search="${query}"` : ""}
+                </div>
+              </div>
+
+              <MiniDashboard counts={teamCounts} />
+
+              {/* My / Selected Owner */}
+              <div className="dtt-card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 950, fontSize: 16 }}>
                     {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
                   </div>
@@ -538,11 +576,10 @@ export default function App() {
                 </div>
               </div>
 
-              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
+              <MiniDashboard counts={selectedOwnerCounts} />
 
               <div className="dtt-muted" style={{ marginTop: 2 }}>
-                Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, tableFiltered=
-                {tableFilteredTasks.length}, selectedOwner={selectedOwner || "—"}
+                Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, selectedOwner={selectedOwner || "—"}
               </div>
             </div>
           )}
@@ -585,12 +622,7 @@ export default function App() {
           <TaskForm
             onSubmit={async (task) => {
               const ownerEmail = ownerEmailFromOwner(task.owner) || "";
-
-              await createTask({
-                ...task,
-                ownerEmail,
-              });
-
+              await createTask({ ...task, ownerEmail });
               setShowModal(false);
               setTab("tasks");
             }}
