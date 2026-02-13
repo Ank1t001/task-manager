@@ -6,7 +6,7 @@ import Modal from "./components/Modal";
 import KanbanBoard from "./components/KanbanBoard";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v8.3-kanban-sortorder";
+const BUILD_VERSION = "v11.2-kanban";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -458,23 +458,93 @@ export default function App() {
           ) : null}
 
           {tab === "dashboard" && (
-            <div style={{ display: "grid", gap: 14 }}>
-              <MiniDashboard counts={teamCounts} theme={theme} />
+  <div style={{ display: "grid", gap: 14 }}>
+    {/* ✅ Date Range Filter bar */}
+    <div className="dtt-card" style={{ padding: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ fontWeight: 950, fontSize: 16 }}>Date Range Filter</div>
 
-              <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 950, fontSize: 16 }}>
-                    {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
-                  </div>
-                  <div className="dtt-muted">
-                    Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
-                  </div>
-                </div>
-              </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="dtt-input"
+            type="date"
+            value={dueFrom}
+            onChange={(e) => setDueFrom(e.target.value)}
+            title="Due date from"
+            style={{ width: 170 }}
+          />
+          <input
+            className="dtt-input"
+            type="date"
+            value={dueTo}
+            onChange={(e) => setDueTo(e.target.value)}
+            title="Due date to"
+            style={{ width: 170 }}
+          />
+          <button
+            className="dtt-btn"
+            type="button"
+            onClick={() => {
+              setDueFrom("");
+              setDueTo("");
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
 
-              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
-            </div>
-          )}
+      <div className="dtt-muted" style={{ marginTop: 8 }}>
+        Applies to Dashboard tiles and Tasks view.
+      </div>
+    </div>
+
+    {/* ✅ Overall Team header */}
+    <div className="dtt-card" style={{ padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
+        <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
+      </div>
+
+      <div className="dtt-muted" style={{ marginTop: 6 }}>
+        Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
+        {query ? `, Search="${query}"` : ""}
+        {ownerFilter !== "All" ? `, Owner=${ownerFilter} (table only)` : ""}
+      </div>
+    </div>
+
+    {/* ✅ Overall tiles */}
+    <MiniDashboard counts={teamCounts} theme={theme} />
+
+    {/* ✅ My/Selected Owner header */}
+    <div className="dtt-card" style={{ padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <div style={{ fontWeight: 950, fontSize: 16 }}>
+          {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
+        </div>
+        <div className="dtt-muted">
+          Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
+        </div>
+      </div>
+    </div>
+
+    {/* ✅ My/Selected Owner tiles */}
+    <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
+
+    <div className="dtt-muted" style={{ marginTop: 2 }}>
+      Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, selectedOwner=
+      {selectedOwner || "—"}
+    </div>
+  </div>
+)}
 
           {tab === "tasks" && (
             <>
