@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-
 function badgeStyleForPriority(priority = "") {
   const p = String(priority).trim().toLowerCase();
 
@@ -44,15 +42,15 @@ function Badge({ children, style }) {
   return <span style={style}>{children}</span>;
 }
 
-function IconBtn({ children, onClick, disabled, title }) {
+function Btn({ children, onClick, disabled, title }) {
   return (
     <button
-      title={title}
+      type="button"
+      className="dtt-btn"
       onClick={onClick}
       disabled={disabled}
-      className="dtt-btn"
+      title={title}
       style={{ padding: "8px 10px", opacity: disabled ? 0.5 : 1 }}
-      type="button"
     >
       {children}
     </button>
@@ -65,38 +63,32 @@ export default function TaskTable({
   onUpdateTask,
   canEditAny,
   canEditTask,
+
+  // Controlled filters from App
+  allOwnerOptions = ["All"],
+  query,
+  setQuery,
+  statusFilter,
+  setStatusFilter,
+  ownerFilter,
+  setOwnerFilter,
+  dueFrom,
+  setDueFrom,
+  dueTo,
+  setDueTo,
 }) {
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [ownerFilter, setOwnerFilter] = useState("All");
-
-  const owners = useMemo(() => {
-    const set = new Set(tasks.map((t) => t.owner).filter(Boolean));
-    return ["All", ...Array.from(set).sort()];
-  }, [tasks]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-
-    return tasks.filter((t) => {
-      const matchesQuery =
-        !q ||
-        (t.taskName || "").toLowerCase().includes(q) ||
-        (t.description || "").toLowerCase().includes(q) ||
-        (t.section || "").toLowerCase().includes(q) ||
-        (t.externalStakeholders || "").toLowerCase().includes(q);
-
-      const matchesStatus = statusFilter === "All" || t.status === statusFilter;
-      const matchesOwner = ownerFilter === "All" || t.owner === ownerFilter;
-
-      return matchesQuery && matchesStatus && matchesOwner;
-    });
-  }, [tasks, query, statusFilter, ownerFilter]);
-
   function setStatus(task, nextStatus) {
     if (!task?.id) return;
     if (!(canEditAny || canEditTask?.(task))) return;
     onUpdateTask?.({ ...task, status: nextStatus });
+  }
+
+  function clearFilters() {
+    setQuery?.("");
+    setStatusFilter?.("All");
+    setOwnerFilter?.("All");
+    setDueFrom?.("");
+    setDueTo?.("");
   }
 
   return (
@@ -111,13 +103,13 @@ export default function TaskTable({
           justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input
             className="dtt-input"
             placeholder="Search tasks, description, type, stakeholders..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            style={{ width: 360 }}
+            style={{ width: 340 }}
           />
 
           <select
@@ -139,17 +131,37 @@ export default function TaskTable({
             onChange={(e) => setOwnerFilter(e.target.value)}
             style={{ width: 170 }}
           >
-            {owners.map((o) => (
+            {allOwnerOptions.map((o) => (
               <option key={o} value={o}>
                 {o === "All" ? "All Owners" : o}
               </option>
             ))}
           </select>
+
+          {/* ✅ Due date range filter */}
+          <input
+            className="dtt-input"
+            type="date"
+            value={dueFrom}
+            onChange={(e) => setDueFrom(e.target.value)}
+            title="Due date from"
+            style={{ width: 165 }}
+          />
+          <input
+            className="dtt-input"
+            type="date"
+            value={dueTo}
+            onChange={(e) => setDueTo(e.target.value)}
+            title="Due date to"
+            style={{ width: 165 }}
+          />
+
+          <Btn title="Reset all filters" onClick={clearFilters}>
+            Clear
+          </Btn>
         </div>
 
-        <span style={{ color: "var(--muted)", fontWeight: 900 }}>
-          {filtered.length} shown
-        </span>
+        <span style={{ color: "var(--muted)", fontWeight: 900 }}>{tasks.length} shown</span>
       </div>
 
       {/* Table */}
@@ -185,7 +197,7 @@ export default function TaskTable({
           </thead>
 
           <tbody>
-            {filtered.map((t, idx) => {
+            {tasks.map((t, idx) => {
               const editable = canEditAny || canEditTask?.(t);
 
               return (
@@ -252,20 +264,20 @@ export default function TaskTable({
 
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <IconBtn
+                      <Btn
                         title={editable ? "Delete task" : "You can only delete your own tasks"}
                         disabled={!editable}
                         onClick={() => onDelete?.(t.id)}
                       >
                         Delete
-                      </IconBtn>
+                      </Btn>
                     </div>
                   </td>
                 </tr>
               );
             })}
 
-            {filtered.length === 0 && (
+            {tasks.length === 0 && (
               <tr>
                 <td colSpan={8} style={{ padding: 16, color: "var(--muted)" }}>
                   No tasks match your filters.

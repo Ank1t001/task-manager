@@ -5,12 +5,12 @@ import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v8.0-d1-backed";
+const BUILD_VERSION = "v8.1-d1-filters-dashboard-sync";
 
-// Email -> Display name mapping
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
   "ankit@equiton.com": "Ankit",
+  "sheel@equiton.com": "Sheel",
   "sheelp@equiton.com": "Sheel",
   "aditi@equiton.com": "Aditi",
   "jacob@equiton.com": "Jacob",
@@ -21,39 +21,32 @@ const TEAM_MAP = {
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
 /** -----------------------------
- *  Dashboard metric rules helpers
+ *  Dashboard metrics (your rules)
  *  ----------------------------- */
 function statusKey(status = "") {
-  // "To-do", "To Do" -> "todo" | "In progress" -> "inprogress"
   return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
 }
-
 function startOfToday() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
 function dueDateAsDate(dueDate) {
-  if (!dueDate) return null; // YYYY-MM-DD
+  if (!dueDate) return null;
   const d = new Date(`${dueDate}T00:00:00`);
   return isNaN(d.getTime()) ? null : d;
 }
-
 function isPastDue(task) {
   const due = dueDateAsDate(task?.dueDate);
-  if (!due) return false; // no due date => NOT overdue
-  return due < startOfToday(); // yesterday or earlier
+  if (!due) return false;
+  return due < startOfToday();
 }
-
 function isOverdueBucket(task) {
   const s = statusKey(task?.status);
   const active = s === "todo" || s === "inprogress" || s === "blocked";
   return active && isPastDue(task);
 }
-
 function computeDashboardCounts(taskList) {
-  // Critical Rule: past due + (todo/inprogress/blocked) MUST be overdue and excluded elsewhere
   let overdue = 0;
   let inProgress = 0;
   let blocked = 0;
@@ -66,13 +59,10 @@ function computeDashboardCounts(taskList) {
       overdue++;
       continue;
     }
-
     if (s === "done") {
       done++;
       continue;
     }
-
-    // Not overdue (today/future or empty dueDate)
     if (s === "inprogress") inProgress++;
     else if (s === "blocked") blocked++;
   }
@@ -81,9 +71,9 @@ function computeDashboardCounts(taskList) {
 }
 
 /** -----------------------------
- *  Map DB row <-> UI task object
+ *  DB row <-> UI mapping
  *  DB uses: type
- *  UI uses: section (label shown as "Type" in UI)
+ *  UI uses: section (label: Type)
  *  ----------------------------- */
 function dbRowToUiTask(row) {
   return {
@@ -92,7 +82,7 @@ function dbRowToUiTask(row) {
     description: row.description || "",
     owner: row.owner || "Ankit",
     ownerEmail: row.ownerEmail || "",
-    section: row.type || "Other", // map DB type -> UI section
+    section: row.type || "Other",
     priority: row.priority || "Medium",
     status: row.status || "To Do",
     dueDate: row.dueDate || "",
@@ -109,12 +99,24 @@ function uiTaskToDbPayload(task) {
     description: task.description || "",
     owner: task.owner || "",
     ownerEmail: task.ownerEmail || "",
-    type: task.section || "Other", // map UI section -> DB type
+    type: task.section || "Other",
     priority: task.priority || "Medium",
     status: task.status || "To Do",
     dueDate: task.dueDate || "",
     externalStakeholders: task.externalStakeholders || "",
   };
+}
+
+/** -----------------------------
+ *  Filters
+ *  ----------------------------- */
+function inDateRange(dueDate, from, to) {
+  // dates are YYYY-MM-DD strings (safe lexicographic compare)
+  if (!from && !to) return true;
+  if (!dueDate) return false; // if filtering by date, exclude tasks without due date
+  if (from && dueDate < from) return false;
+  if (to && dueDate > to) return false;
+  return true;
 }
 
 /** -----------------------------
@@ -148,7 +150,7 @@ function downloadCSV(filename, rows) {
         t.description,
         t.owner,
         t.ownerEmail,
-        t.section, // Type
+        t.section,
         t.priority,
         t.dueDate,
         t.status,
@@ -172,10 +174,27 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+/** Owner -> Email mapping used when creating tasks */
+function ownerEmailFromOwner(owner) {
+  const o = String(owner || "").trim().toLowerCase();
+  if (!o) return "";
+  if (o === "ankit") return "ankit@digijabber.com";
+  if (o === "sheel") return "sheelp@equiton.com";
+  if (o === "aditi") return "aditi@equiton.com";
+  if (o === "jacob") return "jacob@equiton.com";
+  if (o === "vanessa") return "vanessa@equiton.com";
+  if (o === "mandeep") return "mandeep@equiton.com";
+  return "";
+}
+
 export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
   const [tab, setTab] = useState("dashboard");
+
   const [tasks, setTasks] = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [tasksError, setTasksError] = useState("");
+
   const [showModal, setShowModal] = useState(false);
 
   const [userEmail, setUserEmail] = useState("");
@@ -183,8 +202,12 @@ export default function App() {
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  const [loadingTasks, setLoadingTasks] = useState(true);
-  const [tasksError, setTasksError] = useState("");
+  // ✅ Global filters (apply to Tasks tab + Dashboard)
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [ownerFilter, setOwnerFilter] = useState("All");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
 
   // Theme
   useEffect(() => {
@@ -192,9 +215,7 @@ export default function App() {
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  /** -----------------------------
-   *  Identity from /api/me
-   *  ----------------------------- */
+  /** Identity */
   useEffect(() => {
     let alive = true;
 
@@ -219,8 +240,8 @@ export default function App() {
         setIsAuthed(true);
         setUserEmail(email);
 
-        const isAdmin = email === normalizeEmail(ADMIN_EMAIL);
-        setRole(isAdmin ? "Admin" : "Member");
+        const isAdminNow = email === normalizeEmail(ADMIN_EMAIL);
+        setRole(isAdminNow ? "Admin" : "Member");
 
         const mapped = TEAM_MAP[email];
         const fallback = email ? email.split("@")[0] : "Member";
@@ -240,9 +261,7 @@ export default function App() {
     };
   }, []);
 
-  /** -----------------------------
-   *  Load tasks from D1 via /api/tasks
-   *  ----------------------------- */
+  /** Load tasks from D1 via /api/tasks */
   async function loadTasks() {
     try {
       setLoadingTasks(true);
@@ -270,12 +289,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** -----------------------------
-   *  CRUD helpers
-   *  ----------------------------- */
+  /** CRUD */
   async function createTask(uiTask) {
     const payload = uiTaskToDbPayload(uiTask);
-
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -286,12 +302,12 @@ export default function App() {
       const txt = await res.text().catch(() => "");
       throw new Error(`Create failed (${res.status}) ${txt}`);
     }
+
     await loadTasks();
   }
 
   async function updateTask(uiTask) {
     const payload = uiTaskToDbPayload(uiTask);
-
     const res = await fetch("/api/tasks", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -302,6 +318,7 @@ export default function App() {
       const txt = await res.text().catch(() => "");
       throw new Error(`Update failed (${res.status}) ${txt}`);
     }
+
     await loadTasks();
   }
 
@@ -314,45 +331,77 @@ export default function App() {
       const txt = await res.text().catch(() => "");
       throw new Error(`Delete failed (${res.status}) ${txt}`);
     }
+
     await loadTasks();
   }
 
-  /** -----------------------------
-   *  Dashboard: Team vs My Tasks
-   *  ----------------------------- */
-  const teamCounts = useMemo(() => computeDashboardCounts(tasks), [tasks]);
+  /** Owner options for dropdown */
+  const ownerOptions = useMemo(() => {
+    const set = new Set(tasks.map((t) => t.owner).filter(Boolean));
+    return ["All", ...Array.from(set).sort()];
+  }, [tasks]);
 
-  const myTasks = useMemo(() => {
-    const me = (userName || "").trim();
-    if (!me) return [];
-    return tasks.filter((t) => (t.owner || "").trim() === me);
-  }, [tasks, userName]);
+  /** Base filtered tasks (query + status + due range) */
+  const baseFilteredTasks = useMemo(() => {
+    const q = query.trim().toLowerCase();
 
-  const myCounts = useMemo(() => computeDashboardCounts(myTasks), [myTasks]);
+    return tasks.filter((t) => {
+      const matchesQuery =
+        !q ||
+        (t.taskName || "").toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q) ||
+        (t.section || "").toLowerCase().includes(q) ||
+        (t.externalStakeholders || "").toLowerCase().includes(q);
 
-  /** -----------------------------
-   *  Permissions (Rule A)
-   *  ----------------------------- */
-  const isAdmin = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
-  const canEditAny = isAdmin;
+      const matchesStatus = statusFilter === "All" || t.status === statusFilter;
+      const matchesDate = inDateRange(t.dueDate, dueFrom, dueTo);
+
+      return matchesQuery && matchesStatus && matchesDate;
+    });
+  }, [tasks, query, statusFilter, dueFrom, dueTo]);
+
+  /** Table filtered tasks (includes owner filter) */
+  const tableFilteredTasks = useMemo(() => {
+    if (ownerFilter === "All") return baseFilteredTasks;
+    return baseFilteredTasks.filter((t) => t.owner === ownerFilter);
+  }, [baseFilteredTasks, ownerFilter]);
+
+  /** Dashboard: Overall Team uses baseFilteredTasks (so owner filter doesn't hide the team totals) */
+  const teamCounts = useMemo(
+    () => computeDashboardCounts(baseFilteredTasks),
+    [baseFilteredTasks]
+  );
+
+  /** Dashboard: Selected owner behavior
+   *  - If ownerFilter is set (Vanessa), show Vanessa dashboard
+   *  - Else show logged-in user's dashboard
+   */
+  const selectedOwner = useMemo(() => {
+    if (ownerFilter !== "All") return ownerFilter;
+    return userName || "";
+  }, [ownerFilter, userName]);
+
+  const selectedOwnerTasks = useMemo(() => {
+    const name = (selectedOwner || "").trim();
+    if (!name) return [];
+    return baseFilteredTasks.filter((t) => (t.owner || "").trim() === name);
+  }, [baseFilteredTasks, selectedOwner]);
+
+  const selectedOwnerCounts = useMemo(
+    () => computeDashboardCounts(selectedOwnerTasks),
+    [selectedOwnerTasks]
+  );
+
+  /** Permissions */
+  const isAdminNow = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
+  const canEditAny = isAdminNow;
 
   const canEditTask = (task) => {
-    if (isAdmin) return true;
+    if (isAdminNow) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  /** -----------------------------
-   *  UI event handlers
-   *  ----------------------------- */
-  async function onDelete(id) {
-    await deleteTask(id);
-  }
-
-  async function onUpdateTask(updated) {
-    if (!updated?.id) return;
-    await updateTask(updated);
-  }
-
+  /** Handlers */
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -365,7 +414,7 @@ export default function App() {
 
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadCSV(`tasks_${stamp}.csv`, tasks);
+    downloadCSV(`tasks_${stamp}.csv`, tableFilteredTasks);
   }
 
   return (
@@ -449,28 +498,51 @@ export default function App() {
 
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
+              {/* Overall Team */}
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                  }}
+                >
                   <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
-                  <div className="dtt-muted">{tasks.length} total tasks</div>
+                  <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
+                </div>
+
+                <div className="dtt-muted" style={{ marginTop: 6 }}>
+                  Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
+                  {query ? `, Search="${query}"` : ""}
+                  {ownerFilter !== "All" ? `, Owner=${ownerFilter} (table only)` : ""}
                 </div>
               </div>
 
               <MiniDashboard counts={teamCounts} theme={theme} />
 
+              {/* Selected Owner (defaults to me) */}
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 950, fontSize: 16 }}>My Tasks</div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div style={{ fontWeight: 950, fontSize: 16 }}>
+                    {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
+                  </div>
                   <div className="dtt-muted">
-                    Owner: <b>{userName || "Unknown"}</b> • {myTasks.length} tasks
+                    Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
                   </div>
                 </div>
               </div>
 
-              <MiniDashboard counts={myCounts} theme={theme} />
+              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
 
               <div className="dtt-muted" style={{ marginTop: 2 }}>
-                Debug: tasks={tasks.length}, myTasks={myTasks.length}, authed={String(isAuthed)}
+                Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, tableFiltered=
+                {tableFilteredTasks.length}, selectedOwner={selectedOwner || "—"}
               </div>
             </div>
           )}
@@ -479,13 +551,22 @@ export default function App() {
             <>
               {loadingTasks ? (
                 <div className="dtt-muted">Loading tasks…</div>
-              ) : tasks.length === 0 ? (
-                <div className="dtt-muted">No tasks yet. Click + New Task to create one.</div>
               ) : (
                 <TaskTable
-                  tasks={tasks}
-                  onDelete={onDelete}
-                  onUpdateTask={onUpdateTask}
+                  tasks={tableFilteredTasks}
+                  allOwnerOptions={ownerOptions}
+                  query={query}
+                  setQuery={setQuery}
+                  statusFilter={statusFilter}
+                  setStatusFilter={setStatusFilter}
+                  ownerFilter={ownerFilter}
+                  setOwnerFilter={setOwnerFilter}
+                  dueFrom={dueFrom}
+                  setDueFrom={setDueFrom}
+                  dueTo={dueTo}
+                  setDueTo={setDueTo}
+                  onDelete={async (id) => deleteTask(id)}
+                  onUpdateTask={async (t) => updateTask(t)}
                   canEditAny={canEditAny}
                   canEditTask={canEditTask}
                 />
@@ -503,10 +584,7 @@ export default function App() {
         >
           <TaskForm
             onSubmit={async (task) => {
-              // TaskForm gives: taskName, description, owner, section, priority, status, dueDate, externalStakeholders
-              // Build DB payload fields:
-              const ownerEmailGuess = ""; // optional; we will map from owner below
-              const ownerEmail = ownerEmailFromOwner(task.owner) || ownerEmailGuess;
+              const ownerEmail = ownerEmailFromOwner(task.owner) || "";
 
               await createTask({
                 ...task,
@@ -522,22 +600,4 @@ export default function App() {
       </div>
     </div>
   );
-}
-
-/** Owner -> Email mapping for DB writes.
- *  Update these if emails differ.
- */
-function ownerEmailFromOwner(owner) {
-  const o = String(owner || "").trim().toLowerCase();
-  if (!o) return "";
-
-  // Adjust to your real emails:
-  if (o === "ankit") return "ankit@digijabber.com";
-  if (o === "sheel") return "sheelp@equiton.com";
-  if (o === "aditi") return "aditi@equiton.com";
-  if (o === "jacob") return "jacob@equiton.com";
-  if (o === "vanessa") return "vanessa@equiton.com";
-  if (o === "mandeep") return "mandeep@equiton.com";
-
-  return "";
 }
