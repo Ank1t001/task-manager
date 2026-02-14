@@ -736,13 +736,12 @@ export default function App() {
     setShowModal(true);
   }}
   onCreateTaskInStage={({ projectName, stage }) => {
-    // open modal prefilled with project + stage
+    // open create modal with prefilled Project + Stage
     setEditingTask({
-      id: undefined,
       taskName: "",
       description: "",
       owner: userName || "Ankit",
-      ownerEmail: ownerEmailFromOwner(userName || "Ankit") || userEmail || "",
+      ownerEmail: userEmail || "",
       section: "Other",
       priority: "Medium",
       dueDate: "",
@@ -753,6 +752,30 @@ export default function App() {
       sortOrder: 0,
     });
     setShowModal(true);
+  }}
+  onOpenTaskById={async (taskId) => {
+    // Try from already-loaded tasks
+    const found = tasks.find((t) => String(t.id) === String(taskId));
+    if (found) {
+      setEditingTask(found);
+      setShowModal(true);
+      return;
+    }
+
+    // Fallback: fetch project tasks then find
+    try {
+      const res = await fetch(`/api/tasks?projectName=${encodeURIComponent(activeProject)}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const uiList = Array.isArray(data) ? data.map(dbRowToUiTask) : [];
+      const f2 = uiList.find((t) => String(t.id) === String(taskId));
+      if (f2) {
+        setEditingTask(f2);
+        setShowModal(true);
+      }
+    } catch {
+      // ignore
+    }
   }}
 />
               )}
