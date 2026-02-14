@@ -10,7 +10,6 @@ function normalizeStatus(s) {
   if (v === "done") return "Done";
   if (v === "to do") return "To Do";
   if (v === "in progress") return "In Progress";
-  if (v === "done") return "Done";
   return s || "To Do";
 }
 
@@ -19,8 +18,22 @@ function nowIso() {
 }
 
 async function getTaskById(db, id) {
-  const r = await db.prepare(`SELECT * FROM tasks WHERE id = ?`).bind(id).first();
-  return r || null;
+  return (await db.prepare(`SELECT * FROM tasks WHERE id = ?`).bind(id).first()) || null;
+}
+
+async function isStageOwner(db, email, projectName, stage) {
+  if (!email || !projectName || !stage) return false;
+  const row = await db
+    .prepare(
+      `SELECT 1 FROM project_stages
+       WHERE projectName = ?
+         AND stageName = ?
+         AND stageOwnerEmail = ?
+       LIMIT 1`
+    )
+    .bind(projectName, stage, email)
+    .first();
+  return !!row;
 }
 
 export async function onRequestGet(context) {
@@ -32,34 +45,39 @@ export async function onRequestGet(context) {
 
   const db = context.env.DB;
 
-  // Members only see their tasks
-  if (!user.isAdmin) {
+  if (user.isAdmin) {
     const sql = `
       SELECT *
       FROM tasks
-      WHERE ownerEmail = ?
-      ${projectName ? "AND projectName = ?" : ""}
-      ORDER BY status ASC, sortOrder ASC, updatedAt DESC
+      ${projectName ? "WHERE projectName = ?" : ""}
+      ORDER BY updatedAt DESC
     `;
-    const stmt = projectName
-      ? db.prepare(sql).bind(user.email, projectName)
-      : db.prepare(sql).bind(user.email);
-
-    const rows = await stmt.all();
+    const rows = projectName ? await db.prepare(sql).bind(projectName).all() : await db.prepare(sql).all();
     return json(rows.results || []);
   }
 
-  // Admin sees all
-  const sqlAdmin = `
+  // Member: owner OR stage owner
+  const sql = `
     SELECT *
     FROM tasks
-    ${projectName ? "WHERE projectName = ?" : ""}
-    ORDER BY status ASC, sortOrder ASC, updatedAt DESC
+    WHERE
+      (ownerEmail = ?)
+      OR EXISTS (
+        SELECT 1
+        FROM project_stages ps
+        WHERE ps.projectName = tasks.projectName
+          AND ps.stageName = tasks.stage
+          AND ps.stageOwnerEmail = ?
+      )
+    ${projectName ? "AND tasks.projectName = ?" : ""}
+    ORDER BY updatedAt DESC
   `;
-  const rows = projectName
-    ? await db.prepare(sqlAdmin).bind(projectName).all()
-    : await db.prepare(sqlAdmin).all();
 
+  const stmt = projectName
+    ? db.prepare(sql).bind(user.email, user.email, projectName)
+    : db.prepare(sql).bind(user.email, user.email);
+
+  const rows = await stmt.all();
   return json(rows.results || []);
 }
 
@@ -78,26 +96,26 @@ export async function onRequestPost(context) {
   const taskName = String(body.taskName || "").trim();
   if (!taskName) return badRequest("taskName is required");
 
+  const projectName = String(body.projectName || "").trim();
+  const stage = String(body.stage || "").trim();
+
   const owner = String(body.owner || "").trim();
   const ownerEmail = String(body.ownerEmail || "").trim().toLowerCase();
 
-  // Member can only create tasks for themselves
+  // Member can only create tasks for themselves OR (if they are stage owner, allow create in their stage)
   if (!user.isAdmin) {
-    if (ownerEmail !== user.email) {
-      return forbidden("Members can only create tasks assigned to themselves");
+    const stageOwnerOk = await isStageOwner(db, user.email, projectName, stage);
+    if (!stageOwnerOk && ownerEmail !== user.email) {
+      return forbidden("Members can only create tasks assigned to themselves (unless they are Stage Owner)");
     }
   }
 
-  const projectName = String(body.projectName || "").trim(); // NAME ONLY
-  const stage = String(body.stage || "").trim();
-
   const description = String(body.description || "");
-  const type = String(body.type || body.section || "Other"); // keep your existing type field
+  const type = String(body.type || body.section || "Other");
   const priority = String(body.priority || "Medium");
   const status = normalizeStatus(body.status || "To Do");
   const dueDate = String(body.dueDate || "");
   const externalStakeholders = String(body.externalStakeholders || "");
-
   const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
 
   await db
@@ -130,7 +148,6 @@ export async function onRequestPost(context) {
     )
     .run();
 
-  // Activity log (only if projectName provided; you can remove condition if you want logs always)
   if (projectName) {
     await logActivity(db, {
       projectName,
@@ -138,7 +155,7 @@ export async function onRequestPost(context) {
       actorEmail: user.email,
       actorName: user.name,
       action: "TASK_CREATED",
-      summary: `${user.name} created task "${taskName}"${stage ? ` in ${projectName} → ${stage}` : ` in ${projectName}`}`,
+      summary: `${user.name} created "${taskName}"${stage ? ` (${projectName} → ${stage})` : ` (${projectName})`}`,
       meta: { taskName, projectName, stage, ownerEmail },
     });
   }
@@ -160,9 +177,16 @@ export async function onRequestPut(context) {
   const existing = await getTaskById(db, id);
   if (!existing) return badRequest("Task not found");
 
-  // Member can only update their tasks
-  if (!user.isAdmin && String(existing.ownerEmail || "").toLowerCase() !== user.email) {
-    return forbidden("You can only update tasks assigned to you");
+  const existingOwnerEmail = String(existing.ownerEmail || "").toLowerCase();
+  const existingProjectName = String(existing.projectName || "");
+  const existingStage = String(existing.stage || "");
+
+  // Member update permissions: owner OR stage owner
+  if (!user.isAdmin) {
+    const stageOwnerOk = await isStageOwner(db, user.email, existingProjectName, existingStage);
+    if (!stageOwnerOk && existingOwnerEmail !== user.email) {
+      return forbidden("You can only update tasks assigned to you (or tasks in your owned stage)");
+    }
   }
 
   const next = {
@@ -180,7 +204,7 @@ export async function onRequestPut(context) {
     sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : Number(existing.sortOrder ?? 0),
   };
 
-  // Member cannot reassign ownerEmail/owner
+  // Member: cannot reassign owner unless admin (stage owner can manage status/priority/due/stage, but not owner email)
   if (!user.isAdmin) {
     next.ownerEmail = existing.ownerEmail;
     next.owner = existing.owner;
@@ -188,7 +212,6 @@ export async function onRequestPut(context) {
 
   const updatedAt = nowIso();
 
-  // completedAt management
   let completedAt = existing.completedAt || "";
   if (next.status === "Done" && !completedAt) completedAt = nowIso();
   if (next.status !== "Done") completedAt = "";
@@ -222,10 +245,10 @@ export async function onRequestPut(context) {
     )
     .run();
 
-  // Log diff (only when projectName exists)
+  // Log diff
   if (next.projectName) {
     const diff = {};
-    const fields = ["taskName", "description", "owner", "ownerEmail", "type", "priority", "status", "dueDate", "externalStakeholders", "projectName", "stage", "sortOrder"];
+    const fields = ["taskName", "description", "type", "priority", "status", "dueDate", "externalStakeholders", "stage", "sortOrder"];
     for (const f of fields) {
       const oldVal = existing[f] ?? "";
       const newVal = next[f] ?? "";
@@ -233,13 +256,18 @@ export async function onRequestPut(context) {
     }
 
     if (Object.keys(diff).length > 0) {
+      const action = diff.status ? "STATUS_CHANGED" : "TASK_UPDATED";
+      const summary = diff.status
+        ? `${user.name} moved "${next.taskName}" ${diff.status.from} → ${diff.status.to}`
+        : `${user.name} updated "${next.taskName}"`;
+
       await logActivity(db, {
         projectName: next.projectName,
         taskId: id,
         actorEmail: user.email,
         actorName: user.name,
-        action: "TASK_UPDATED",
-        summary: `${user.name} updated "${next.taskName}"`,
+        action,
+        summary,
         meta: { diff },
       });
     }
@@ -260,9 +288,14 @@ export async function onRequestDelete(context) {
   const existing = await getTaskById(db, id);
   if (!existing) return badRequest("Task not found");
 
-  // Member can only delete their tasks
-  if (!user.isAdmin && String(existing.ownerEmail || "").toLowerCase() !== user.email) {
-    return forbidden("You can only delete tasks assigned to you");
+  const existingOwnerEmail = String(existing.ownerEmail || "").toLowerCase();
+
+  // Member delete permissions: owner OR stage owner
+  if (!user.isAdmin) {
+    const stageOwnerOk = await isStageOwner(db, user.email, existing.projectName, existing.stage);
+    if (!stageOwnerOk && existingOwnerEmail !== user.email) {
+      return forbidden("You can only delete tasks assigned to you (or tasks in your owned stage)");
+    }
   }
 
   await db.prepare(`DELETE FROM tasks WHERE id = ?`).bind(id).run();

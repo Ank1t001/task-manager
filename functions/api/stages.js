@@ -13,7 +13,7 @@ export async function onRequestGet(context) {
 
   const rows = await db
     .prepare(
-      `SELECT stageName, sortOrder
+      `SELECT stageName, sortOrder, stageOwnerEmail
        FROM project_stages
        WHERE projectName = ?
        ORDER BY sortOrder ASC`
@@ -33,37 +33,63 @@ export async function onRequestPost(context) {
   const body = await context.request.json().catch(() => null);
 
   const projectName = (body?.projectName || "").trim();
-  const stages = Array.isArray(body?.stages) ? body.stages : [];
+  const stagesIn = Array.isArray(body?.stages) ? body.stages : [];
 
   if (!projectName) return badRequest("projectName is required");
-  if (stages.length === 0) return badRequest("stages array is required");
+  if (stagesIn.length === 0) return badRequest("stages array is required");
 
-  // Clean + unique
-  const cleanStages = [];
+  // Normalize:
+  // - string => {stageName, stageOwnerEmail:""}
+  // - object => {stageName, stageOwnerEmail}
+  const clean = [];
   const seen = new Set();
-  for (const s of stages) {
-    const name = String(s || "").trim();
-    if (!name) continue;
-    const k = name.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    cleanStages.push(name);
-  }
-  if (cleanStages.length === 0) return badRequest("No valid stages");
 
-  // overwrite stages
+  for (const item of stagesIn) {
+    if (typeof item === "string") {
+      const name = item.trim();
+      if (!name) continue;
+      const k = name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      clean.push({ stageName: name, stageOwnerEmail: "" });
+      continue;
+    }
+
+    if (item && typeof item === "object") {
+      const name = String(item.stageName || "").trim();
+      if (!name) continue;
+      const k = name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      clean.push({
+        stageName: name,
+        stageOwnerEmail: String(item.stageOwnerEmail || "").trim().toLowerCase(),
+      });
+    }
+  }
+
+  if (clean.length === 0) return badRequest("No valid stages");
+
+  // Overwrite stages for project
   await db.prepare(`DELETE FROM project_stages WHERE projectName = ?`).bind(projectName).run();
 
   const createdAt = new Date().toISOString();
-  for (let i = 0; i < cleanStages.length; i++) {
+  for (let i = 0; i < clean.length; i++) {
     await db
       .prepare(
-        `INSERT INTO project_stages (id, projectName, stageName, sortOrder, createdAt)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO project_stages (id, projectName, stageName, sortOrder, stageOwnerEmail, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .bind(crypto.randomUUID(), projectName, cleanStages[i], (i + 1) * 10, createdAt)
+      .bind(
+        crypto.randomUUID(),
+        projectName,
+        clean[i].stageName,
+        (i + 1) * 10,
+        clean[i].stageOwnerEmail || "",
+        createdAt
+      )
       .run();
   }
 
-  return json({ ok: true, projectName, stages: cleanStages });
+  return json({ ok: true, projectName, stages: clean });
 }
