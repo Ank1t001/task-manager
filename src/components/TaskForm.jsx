@@ -6,7 +6,8 @@ import { SECTION_OPTIONS } from "../config/sections";
 const STATUS_OPTIONS = ["To Do", "In Progress", "Done"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 
-const DEFAULT_STAGE_OPTIONS = [
+// ✅ FIXED STAGES ONLY (always)
+const FIXED_STAGE_OPTIONS = [
   "Brief/Kickoff",
   "Research/Strategy",
   "Creative/Concept",
@@ -37,10 +38,8 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
 
   const [form, setForm] = useState(defaultForm);
 
-  // Projects + stages
-  const [projects, setProjects] = useState([]); // [{name, ownerEmail...}]
-  const [stageOptions, setStageOptions] = useState(DEFAULT_STAGE_OPTIONS);
-  const [loadingStages, setLoadingStages] = useState(false);
+  // Projects dropdown
+  const [projects, setProjects] = useState([]); // [{name, ...}]
 
   // Prefill
   useEffect(() => {
@@ -66,7 +65,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  // Load projects for dropdown
+  // ✅ Load projects for dropdown (only)
   useEffect(() => {
     let alive = true;
     async function loadProjects() {
@@ -83,46 +82,6 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     loadProjects();
     return () => (alive = false);
   }, []);
-
-  // Load stages for selected project (fallback to default list)
-  useEffect(() => {
-    let alive = true;
-
-    async function loadStages(projectName) {
-      if (!projectName?.trim()) {
-        setStageOptions(DEFAULT_STAGE_OPTIONS);
-        return;
-      }
-
-      setLoadingStages(true);
-      try {
-        const res = await fetch(`/api/stages?projectName=${encodeURIComponent(projectName.trim())}`, {
-          cache: "no-store",
-        });
-
-        if (!res.ok) {
-          if (!alive) return;
-          setStageOptions(DEFAULT_STAGE_OPTIONS);
-          return;
-        }
-
-        const data = await res.json();
-        if (!alive) return;
-
-        const list = Array.isArray(data?.stages) ? data.stages : [];
-        const names = list.map((x) => x.stageName).filter(Boolean);
-
-        // If project has custom stages saved, use them. Else fallback.
-        setStageOptions(names.length ? names : DEFAULT_STAGE_OPTIONS);
-      } finally {
-        if (!alive) return;
-        setLoadingStages(false);
-      }
-    }
-
-    loadStages(form.projectName);
-    return () => (alive = false);
-  }, [form.projectName]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -169,17 +128,11 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
             className="dtt-select"
             value={form.stage}
             onChange={(e) => update("stage", e.target.value)}
-            disabled={!form.projectName || loadingStages}
+            disabled={!form.projectName}
           >
-            <option value="">
-              {!form.projectName
-                ? "Select project first"
-                : loadingStages
-                ? "Loading stages…"
-                : "Select stage"}
-            </option>
+            <option value="">{!form.projectName ? "Select project first" : "Select stage"}</option>
 
-            {stageOptions.map((s) => (
+            {FIXED_STAGE_OPTIONS.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -264,12 +217,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Due Date</label>
-          <input
-            className="dtt-input"
-            type="date"
-            value={form.dueDate}
-            onChange={(e) => update("dueDate", e.target.value)}
-          />
+          <input className="dtt-input" type="date" value={form.dueDate} onChange={(e) => update("dueDate", e.target.value)} />
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
@@ -283,7 +231,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* Footer buttons */}
+      {/* Footer */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
         <button type="button" className="dtt-btn" onClick={onCancel}>
           Cancel
