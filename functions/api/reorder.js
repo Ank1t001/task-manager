@@ -1,32 +1,64 @@
-export async function onRequest(context) {
-  const { request, env } = context;
+// functions/api/reorder.js
+import { getUser, json, badRequest, unauthorized, forbidden } from "./_auth";
 
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
-  }
+const isoNow = () => new Date().toISOString();
+const norm = (v = "") => String(v).trim().toLowerCase();
 
-  const body = await request.json();
+async function isStageOwner(db, email, projectName, stageName) {
+  if (!email || !projectName || !stageName) return false;
+  const r = await db
+    .prepare(
+      `SELECT 1 FROM project_stages
+       WHERE projectName = ? AND stageName = ? AND stageOwnerEmail = ?
+       LIMIT 1`
+    )
+    .bind(projectName, stageName, email)
+    .first();
+  return !!r;
+}
+
+export async function onRequestPost(context) {
+  const user = getUser(context);
+  if (!user.email) return unauthorized();
+
+  const body = await context.request.json().catch(() => null);
   const updates = Array.isArray(body?.updates) ? body.updates : [];
-  if (!updates.length) return Response.json({ success: true, updated: 0 });
+  if (!updates.length) return badRequest("updates is required");
 
-  const now = new Date().toISOString();
+  const db = context.env.DB;
+  const now = isoNow();
+  const me = norm(user.email);
 
   for (const u of updates) {
-    if (!u?.id) continue;
+    const id = String(u?.id || "").trim();
+    const status = u?.status != null ? String(u.status) : null;
+    const sortOrder = Number(u?.sortOrder);
 
-    const status = u.status || null;
-    const sortOrder = Number.isFinite(u.sortOrder) ? u.sortOrder : 0;
+    if (!id || !Number.isFinite(sortOrder)) continue;
 
-    await env.DB.prepare(`
-      UPDATE tasks SET
-        status = COALESCE(?, status),
-        sortOrder = ?,
-        updatedAt = ?
-      WHERE id = ?
-    `)
-      .bind(status, sortOrder, now, u.id)
-      .run();
+    const task = await db.prepare(`SELECT id, ownerEmail, projectName, stage FROM tasks WHERE id = ?`).bind(id).first();
+    if (!task) continue;
+
+    const ownerEmail = norm(task.ownerEmail);
+    const stageOwnerOk = await isStageOwner(db, me, task.projectName, task.stage);
+
+    // Permission
+    if (!user.isAdmin && me !== ownerEmail && !stageOwnerOk) {
+      return forbidden("Read-only: you can only reorder tasks you own or tasks in stages you own");
+    }
+
+    if (status) {
+      await db
+        .prepare(`UPDATE tasks SET status = ?, sortOrder = ?, updatedAt = ? WHERE id = ?`)
+        .bind(status, sortOrder, now, id)
+        .run();
+    } else {
+      await db
+        .prepare(`UPDATE tasks SET sortOrder = ?, updatedAt = ? WHERE id = ?`)
+        .bind(sortOrder, now, id)
+        .run();
+    }
   }
 
-  return Response.json({ success: true, updated: updates.length });
+  return json({ ok: true });
 }
