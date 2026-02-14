@@ -6,15 +6,25 @@ import { SECTION_OPTIONS } from "../config/sections";
 const STATUS_OPTIONS = ["To Do", "In Progress", "Done"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
 
-export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create" }) {
-  const isEdit = mode === "edit";
+const DEFAULT_STAGE_OPTIONS = [
+  "Brief/Kickoff",
+  "Research/Strategy",
+  "Creative/Concept",
+  "Production",
+  "Internal Review",
+  "Compliance Review",
+  "Revisions",
+  "Approval",
+  "Launch/Execution",
+];
 
+export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create" }) {
   const defaultForm = useMemo(
     () => ({
       taskName: "",
       description: "",
       owner: "Ankit",
-      section: "Other", // UI label: Type (existing)
+      section: "Other", // UI label: Type
       priority: "Medium",
       dueDate: "",
       status: "To Do",
@@ -27,18 +37,17 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
 
   const [form, setForm] = useState(defaultForm);
 
-  // project suggestions + stages
-  const [projectSuggestions, setProjectSuggestions] = useState([]);
-  const [stageOptions, setStageOptions] = useState([]);
+  // Projects + stages
+  const [projects, setProjects] = useState([]); // [{name, ownerEmail...}]
+  const [stageOptions, setStageOptions] = useState(DEFAULT_STAGE_OPTIONS);
   const [loadingStages, setLoadingStages] = useState(false);
 
-  // Prefill on edit
+  // Prefill
   useEffect(() => {
     if (!initialTask) {
       setForm(defaultForm);
       return;
     }
-
     setForm({
       taskName: initialTask.taskName || "",
       description: initialTask.description || "",
@@ -57,16 +66,16 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  // Load project suggestions
+  // Load projects for dropdown
   useEffect(() => {
     let alive = true;
     async function loadProjects() {
       try {
-        const res = await fetch("/api/projects", { cache: "no-store" });
+        const res = await fetch("/api/projects?archived=0", { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
         if (!alive) return;
-        setProjectSuggestions(Array.isArray(data?.projects) ? data.projects : []);
+        setProjects(Array.isArray(data?.projects) ? data.projects : []);
       } catch {
         // ignore
       }
@@ -75,28 +84,36 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     return () => (alive = false);
   }, []);
 
-  // Load stages when projectName changes
+  // Load stages for selected project (fallback to default list)
   useEffect(() => {
     let alive = true;
 
     async function loadStages(projectName) {
       if (!projectName?.trim()) {
-        setStageOptions([]);
+        setStageOptions(DEFAULT_STAGE_OPTIONS);
         return;
       }
+
       setLoadingStages(true);
       try {
         const res = await fetch(`/api/stages?projectName=${encodeURIComponent(projectName.trim())}`, {
           cache: "no-store",
         });
+
         if (!res.ok) {
-          setStageOptions([]);
+          if (!alive) return;
+          setStageOptions(DEFAULT_STAGE_OPTIONS);
           return;
         }
+
         const data = await res.json();
         if (!alive) return;
+
         const list = Array.isArray(data?.stages) ? data.stages : [];
-        setStageOptions(list.map((x) => x.stageName).filter(Boolean));
+        const names = list.map((x) => x.stageName).filter(Boolean);
+
+        // If project has custom stages saved, use them. Else fallback.
+        setStageOptions(names.length ? names : DEFAULT_STAGE_OPTIONS);
       } finally {
         if (!alive) return;
         setLoadingStages(false);
@@ -109,7 +126,10 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!form.taskName.trim()) return;
+
+    if (!form.projectName?.trim()) return alert("Please select a project.");
+    if (!form.stage?.trim()) return alert("Please select a stage.");
+    if (!form.taskName.trim()) return alert("Task Name is required.");
 
     onSubmit?.({
       ...form,
@@ -118,54 +138,53 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     });
   }
 
-  const stageHasOptions = stageOptions.length > 0;
-
   return (
     <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
       {/* Project + Stage */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Project Name</label>
-          <input
-            className="dtt-input"
+
+          <select
+            className="dtt-select"
             value={form.projectName}
-            onChange={(e) => update("projectName", e.target.value)}
-            placeholder="e.g., EMIFT"
-            list="projectSuggestions"
-          />
-          <datalist id="projectSuggestions">
-            {projectSuggestions.map((p) => (
-              <option key={p} value={p} />
+            onChange={(e) => {
+              update("projectName", e.target.value);
+              update("stage", ""); // reset stage when project changes
+            }}
+          >
+            <option value="">Select project</option>
+            {projects.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+              </option>
             ))}
-          </datalist>
+          </select>
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Stage</label>
 
-          {stageHasOptions ? (
-            <select
-              className="dtt-select"
-              value={form.stage}
-              onChange={(e) => update("stage", e.target.value)}
-              disabled={loadingStages}
-            >
-              <option value="">{loadingStages ? "Loading stages…" : "Select stage"}</option>
-              {stageOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              className="dtt-input"
-              value={form.stage}
-              onChange={(e) => update("stage", e.target.value)}
-              placeholder={form.projectName ? "No stages found. Type stage name…" : "Select project first"}
-              disabled={!form.projectName}
-            />
-          )}
+          <select
+            className="dtt-select"
+            value={form.stage}
+            onChange={(e) => update("stage", e.target.value)}
+            disabled={!form.projectName || loadingStages}
+          >
+            <option value="">
+              {!form.projectName
+                ? "Select project first"
+                : loadingStages
+                ? "Loading stages…"
+                : "Select stage"}
+            </option>
+
+            {stageOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -194,13 +213,15 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         />
       </div>
 
-      {/* Row: Owner / Type / Priority / Status */}
+      {/* Owner / Type / Priority / Status */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Owner</label>
           <select className="dtt-select" value={form.owner} onChange={(e) => update("owner", e.target.value)}>
-            {OWNER_OPTIONS.map((o) => (
-              <option key={o} value={o}>{o}</option>
+            {(OWNER_OPTIONS || ["Ankit"]).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
             ))}
           </select>
         </div>
@@ -208,8 +229,10 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Type</label>
           <select className="dtt-select" value={form.section} onChange={(e) => update("section", e.target.value)}>
-            {SECTION_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+            {(SECTION_OPTIONS || ["Other"]).map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
@@ -218,7 +241,9 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
           <label style={{ fontWeight: 900 }}>Priority</label>
           <select className="dtt-select" value={form.priority} onChange={(e) => update("priority", e.target.value)}>
             {PRIORITY_OPTIONS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>
+                {p}
+              </option>
             ))}
           </select>
         </div>
@@ -227,17 +252,24 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
           <label style={{ fontWeight: 900 }}>Status</label>
           <select className="dtt-select" value={form.status} onChange={(e) => update("status", e.target.value)}>
             {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
       </div>
 
-      {/* Row: Due Date / External Stakeholders */}
+      {/* Due Date / Stakeholders */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Due Date</label>
-          <input className="dtt-input" type="date" value={form.dueDate} onChange={(e) => update("dueDate", e.target.value)} />
+          <input
+            className="dtt-input"
+            type="date"
+            value={form.dueDate}
+            onChange={(e) => update("dueDate", e.target.value)}
+          />
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
@@ -251,13 +283,13 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+      {/* Footer buttons */}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
         <button type="button" className="dtt-btn" onClick={onCancel}>
           Cancel
         </button>
         <button type="submit" className="dtt-btnPrimary">
-          {isEdit ? "Save Changes" : "Create Task"}
+          {mode === "edit" ? "Save Changes" : "Create Task"}
         </button>
       </div>
     </form>
