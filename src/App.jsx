@@ -6,7 +6,7 @@ import Modal from "./components/Modal";
 import KanbanBoard from "./components/KanbanBoard";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v12.0-dashboard-filters-anim-edit";
+const BUILD_VERSION = "v12.1";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -590,24 +590,20 @@ export default function App() {
                 <div className="dtt-muted">Loading tasks…</div>
               ) : (
                 <TaskTable
-                  tasks={tableFilteredTasks}
-                  allOwnerOptions={ownerOptions}
-                  allTypeOptions={typeOptions}
-                  query={query}
-                  setQuery={setQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  ownerFilter={ownerFilter}
-                  setOwnerFilter={setOwnerFilter}
-                  dueFrom={dueFrom}
-                  setDueFrom={setDueFrom}
-                  dueTo={dueTo}
-                  setDueTo={setDueTo}
-                  onDelete={async (id) => deleteTask(id)}
-                  onUpdateTask={async (t) => updateTask(t)}
-                  canEditAny={canEditAny}
-                  canEditTask={canEditTask}
-                />
+  tasks={tableFilteredTasks}
+  allOwnerOptions={ownerOptions}
+  allTypeOptions={typeOptions}
+  query={query}
+  setQuery={setQuery}
+  statusFilter={statusFilter}
+  setStatusFilter={setStatusFilter}
+  ownerFilter={ownerFilter}
+  setOwnerFilter={setOwnerFilter}
+  onDelete={async (id) => deleteTask(id)}
+  onUpdateTask={async (t) => updateTask(t)}
+  canEditAny={canEditAny}
+  canEditTask={canEditTask}
+/>
               )}
             </>
           )}
