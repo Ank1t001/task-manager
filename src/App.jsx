@@ -728,16 +728,33 @@ export default function App() {
                 />
               ) : (
                 <ProjectView
-                  projectName={activeProject}
-                  userIsAdmin={canEditAny}
-                  onBack={() => setActiveProject("")}
-                  onEditTask={(dbRowTask) => {
-                    // ProjectView loads DB rows (type/externalStakeholders),
-                    // so normalize to UI task before editing in modal:
-                    setEditingTask(dbRowToUiTask(dbRowTask));
-                    setShowModal(true);
-                  }}
-                />
+  projectName={activeProject}
+  userIsAdmin={canEditAny}
+  onBack={() => setActiveProject("")}
+  onEditTask={(dbRowTask) => {
+    setEditingTask(dbRowToUiTask(dbRowTask));
+    setShowModal(true);
+  }}
+  onCreateTaskInStage={({ projectName, stage }) => {
+    // open modal prefilled with project + stage
+    setEditingTask({
+      id: undefined,
+      taskName: "",
+      description: "",
+      owner: userName || "Ankit",
+      ownerEmail: ownerEmailFromOwner(userName || "Ankit") || userEmail || "",
+      section: "Other",
+      priority: "Medium",
+      dueDate: "",
+      status: "To Do",
+      externalStakeholders: "",
+      projectName,
+      stage,
+      sortOrder: 0,
+    });
+    setShowModal(true);
+  }}
+/>
               )}
             </>
           )}
