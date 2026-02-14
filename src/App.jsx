@@ -5,9 +5,11 @@ import TaskTable from "./components/TaskTable";
 import TaskForm from "./components/TaskForm";
 import Modal from "./components/Modal";
 import KanbanBoard from "./components/KanbanBoard";
+import Projects from "./components/Projects";
+import ProjectView from "./components/ProjectView";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v12.1-edit-modal-datefilter-anim";
+const BUILD_VERSION = "v13.0-crm-projects";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -98,6 +100,9 @@ function dbRowToUiTask(row) {
     sortOrder: row.sortOrder ?? 0,
     createdAt: row.createdAt || "",
     updatedAt: row.updatedAt || "",
+    projectName: row.projectName || "",
+    stage: row.stage || "",
+    completedAt: row.completedAt || "",
   };
 }
 
@@ -114,6 +119,9 @@ function uiTaskToDbPayload(task) {
     dueDate: task.dueDate || "",
     externalStakeholders: task.externalStakeholders || "",
     sortOrder: task.sortOrder ?? 0,
+    projectName: task.projectName || "",
+    stage: task.stage || "",
+    completedAt: task.completedAt || "",
   };
 }
 
@@ -128,6 +136,8 @@ function inDateRange(dueDate, from, to) {
 
 function downloadCSV(filename, rows) {
   const headers = [
+    "Project",
+    "Stage",
     "Task Name",
     "Task Description",
     "Owner",
@@ -151,6 +161,8 @@ function downloadCSV(filename, rows) {
     headers.join(","),
     ...rows.map((t) =>
       [
+        t.projectName,
+        t.stage,
         t.taskName,
         t.description,
         t.owner,
@@ -238,24 +250,27 @@ export default function App() {
   const [tasksError, setTasksError] = useState("");
 
   const [showModal, setShowModal] = useState(false);
-  const [editingTask, setEditingTask] = useState(null); // ✅ edit modal
+  const [editingTask, setEditingTask] = useState(null);
 
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("Member");
   const [isAuthed, setIsAuthed] = useState(false);
 
-  // Global filters
+  // Global filters (Tasks tab)
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter] = useState("All");
 
-  // Date Range Filter (global for dashboard + tasks + kanban)
+  // Date Range Filter (applies to Dashboard tiles + Tasks + Kanban + Projects view filters)
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
 
   // Collapsible Date Filter
   const [dateFilterOpen, setDateFilterOpen] = useState(true);
+
+  // Projects UI
+  const [activeProject, setActiveProject] = useState("");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -341,7 +356,10 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Create failed");
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Create failed (${res.status}) ${t}`);
+    }
     await loadTasks();
   }
 
@@ -352,13 +370,19 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Update failed");
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Update failed (${res.status}) ${t}`);
+    }
     await loadTasks();
   }
 
   async function deleteTask(id) {
     const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Delete failed");
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Delete failed (${res.status}) ${t}`);
+    }
     await loadTasks();
   }
 
@@ -382,7 +406,9 @@ export default function App() {
         (t.taskName || "").toLowerCase().includes(q) ||
         (t.description || "").toLowerCase().includes(q) ||
         (t.section || "").toLowerCase().includes(q) ||
-        (t.externalStakeholders || "").toLowerCase().includes(q);
+        (t.externalStakeholders || "").toLowerCase().includes(q) ||
+        (t.projectName || "").toLowerCase().includes(q) ||
+        (t.stage || "").toLowerCase().includes(q);
 
       const matchesStatus = statusFilter === "All" || t.status === statusFilter;
       const matchesDate = inDateRange(t.dueDate, dueFrom, dueTo);
@@ -512,23 +538,39 @@ export default function App() {
           <div className="dtt-tabs">
             <button
               className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("dashboard")}
+              onClick={() => {
+                setTab("dashboard");
+                setActiveProject("");
+              }}
             >
               Dashboard
             </button>
 
             <button
               className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("tasks")}
+              onClick={() => {
+                setTab("tasks");
+                setActiveProject("");
+              }}
             >
               Tasks
             </button>
 
             <button
               className={`dtt-tab ${tab === "kanban" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("kanban")}
+              onClick={() => {
+                setTab("kanban");
+                setActiveProject("");
+              }}
             >
               Kanban
+            </button>
+
+            <button
+              className={`dtt-tab ${tab === "projects" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("projects")}
+            >
+              Projects
             </button>
           </div>
 
@@ -551,7 +593,7 @@ export default function App() {
             </div>
           ) : null}
 
-          {/* Date Range Filter (Dashboard + Tasks + Kanban) */}
+          {/* Date Range Filter (applies to dashboard tiles + tasks + kanban + projects view filters) */}
           <div className="dtt-card" style={{ padding: 14, marginBottom: 14 }}>
             <div
               style={{
@@ -613,13 +655,7 @@ export default function App() {
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                  }}
-                >
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 1000, fontSize: 16 }}>Overall Team</div>
                   <div className="dtt-muted">{baseFilteredTasks.length} tasks</div>
                 </div>
@@ -628,13 +664,7 @@ export default function App() {
               <MiniDashboard counts={teamCounts} theme={theme} />
 
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                  }}
-                >
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
                   <div style={{ fontWeight: 1000, fontSize: 16 }}>My Tasks</div>
                   <div className="dtt-muted">
                     Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
@@ -687,6 +717,30 @@ export default function App() {
               )}
             </>
           )}
+
+          {tab === "projects" && (
+            <>
+              {!activeProject ? (
+                <Projects
+                  onOpenProject={(name) => {
+                    setActiveProject(name);
+                  }}
+                />
+              ) : (
+                <ProjectView
+                  projectName={activeProject}
+                  userIsAdmin={canEditAny}
+                  onBack={() => setActiveProject("")}
+                  onEditTask={(dbRowTask) => {
+                    // ProjectView loads DB rows (type/externalStakeholders),
+                    // so normalize to UI task before editing in modal:
+                    setEditingTask(dbRowToUiTask(dbRowTask));
+                    setShowModal(true);
+                  }}
+                />
+              )}
+            </>
+          )}
         </div>
 
         {/* Modal: Create / Edit */}
@@ -704,20 +758,19 @@ export default function App() {
             initialTask={editingTask}
             onSubmit={async (values) => {
               if (editingTask) {
-                // EDIT: merge immutable fields back
                 await updateTask({
                   ...editingTask,
                   ...values,
                 });
               } else {
-                // CREATE
                 const ownerEmail = ownerEmailFromOwner(values.owner) || "";
                 await createTask({ ...values, ownerEmail, sortOrder: 0 });
               }
 
               setShowModal(false);
               setEditingTask(null);
-              setTab("tasks");
+              await loadTasks();
+              // keep the current tab (don’t force switch)
             }}
             onCancel={() => {
               setShowModal(false);
