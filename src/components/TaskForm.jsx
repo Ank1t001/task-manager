@@ -1,18 +1,47 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { OWNER_OPTIONS } from "../config/owners";
 import { SECTION_OPTIONS } from "../config/sections";
 
-export default function TaskForm({ onSubmit, onCancel }) {
-  const [form, setForm] = useState({
-    taskName: "",
-    description: "", // ✅ NEW
-    owner: OWNER_OPTIONS?.[0] || "Ankit",
-    section: SECTION_OPTIONS?.[0] || "Other", // UI label: Type
-    priority: "Medium",
-    dueDate: "",
-    status: "To Do",
-    externalStakeholders: "",
-  });
+const STATUS_OPTIONS = ["To Do", "In Progress", "Done"];
+const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+
+export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create" }) {
+  const isEdit = mode === "edit";
+
+  const defaultForm = useMemo(
+    () => ({
+      taskName: "",
+      description: "",
+      owner: "Ankit",
+      section: "Other", // UI label: Type
+      priority: "Medium",
+      dueDate: "",
+      status: "To Do",
+      externalStakeholders: "",
+    }),
+    []
+  );
+
+  const [form, setForm] = useState(defaultForm);
+
+  // ✅ Prefill when editing
+  useEffect(() => {
+    if (!initialTask) {
+      setForm(defaultForm);
+      return;
+    }
+
+    setForm({
+      taskName: initialTask.taskName || "",
+      description: initialTask.description || "",
+      owner: initialTask.owner || "Ankit",
+      section: initialTask.section || "Other",
+      priority: initialTask.priority || "Medium",
+      dueDate: initialTask.dueDate || "",
+      status: initialTask.status || "To Do",
+      externalStakeholders: initialTask.externalStakeholders || "",
+    });
+  }, [initialTask, defaultForm]);
 
   function update(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -21,11 +50,14 @@ export default function TaskForm({ onSubmit, onCancel }) {
   function handleSubmit(e) {
     e.preventDefault();
     if (!form.taskName.trim()) return;
+
+    // return form values only; App.jsx will merge id/sortOrder/etc if editing
     onSubmit?.(form);
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
+      {/* Task Name */}
       <div style={{ display: "grid", gap: 8 }}>
         <label style={{ fontWeight: 900 }}>Task Name</label>
         <input
@@ -37,19 +69,20 @@ export default function TaskForm({ onSubmit, onCancel }) {
         />
       </div>
 
-      {/* ✅ NEW: Task Description */}
+      {/* Task Description */}
       <div style={{ display: "grid", gap: 8 }}>
         <label style={{ fontWeight: 900 }}>Task Description</label>
         <textarea
           className="dtt-input"
           value={form.description}
           onChange={(e) => update("description", e.target.value)}
-          placeholder="Add details, context, links, requirements..."
+          placeholder="Add details, context, links, notes…"
           rows={3}
-          style={{ resize: "vertical", minHeight: 90 }}
+          style={{ resize: "vertical" }}
         />
       </div>
 
+      {/* Row: Owner / Type / Priority / Status */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Owner</label>
@@ -88,9 +121,11 @@ export default function TaskForm({ onSubmit, onCancel }) {
             value={form.priority}
             onChange={(e) => update("priority", e.target.value)}
           >
-            <option>Low</option>
-            <option>Medium</option>
-            <option>High</option>
+            {PRIORITY_OPTIONS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -101,14 +136,16 @@ export default function TaskForm({ onSubmit, onCancel }) {
             value={form.status}
             onChange={(e) => update("status", e.target.value)}
           >
-            <option>To Do</option>
-            <option>In Progress</option>
-            <option>Blocked</option>
-            <option>Done</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
+      {/* Row: Due Date / External Stakeholders */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Due Date</label>
@@ -131,12 +168,13 @@ export default function TaskForm({ onSubmit, onCancel }) {
         </div>
       </div>
 
+      {/* Actions */}
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
         <button type="button" className="dtt-btn" onClick={onCancel}>
           Cancel
         </button>
         <button type="submit" className="dtt-btnPrimary">
-          Create Task
+          {isEdit ? "Save Changes" : "Create Task"}
         </button>
       </div>
     </form>

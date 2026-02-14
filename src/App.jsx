@@ -1,3 +1,4 @@
+// src/App.jsx
 import { useEffect, useMemo, useState } from "react";
 import MiniDashboard from "./components/MiniDashboard";
 import TaskTable from "./components/TaskTable";
@@ -6,7 +7,7 @@ import Modal from "./components/Modal";
 import KanbanBoard from "./components/KanbanBoard";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v12.1";
+const BUILD_VERSION = "v12.1-edit-modal-datefilter-anim";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -58,7 +59,7 @@ function isOverdueBucket(task) {
   return active && isPastDue(task);
 }
 
-// ✅ Dashboard counts: Total, Overdue, In Progress, Done
+// Dashboard counts: Total, Overdue, In Progress, Done
 function computeDashboardCounts(taskList) {
   const total = taskList.length;
   let overdue = 0;
@@ -89,7 +90,7 @@ function dbRowToUiTask(row) {
     description: row.description || "",
     owner: row.owner || "Ankit",
     ownerEmail: row.ownerEmail || "",
-    section: row.type || "Other", // UI label is "Type"
+    section: row.type || "Other", // UI label: Type
     priority: row.priority || "Medium",
     status: normalizeStatusForUI(row.status),
     dueDate: row.dueDate || "",
@@ -116,7 +117,7 @@ function uiTaskToDbPayload(task) {
   };
 }
 
-// ✅ Due date filter range check (YYYY-MM-DD)
+// Due date filter range check (YYYY-MM-DD)
 function inDateRange(dueDate, from, to) {
   if (!from && !to) return true;
   if (!dueDate) return false;
@@ -179,7 +180,7 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-// helper: YYYY-MM-DD
+// helpers: YYYY-MM-DD
 function fmt(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -237,6 +238,7 @@ export default function App() {
   const [tasksError, setTasksError] = useState("");
 
   const [showModal, setShowModal] = useState(false);
+  const [editingTask, setEditingTask] = useState(null); // ✅ edit modal
 
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
@@ -248,11 +250,11 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter] = useState("All");
 
-  // ✅ Date Range Filter (global for dashboard + tasks + kanban)
+  // Date Range Filter (global for dashboard + tasks + kanban)
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
 
-  // ✅ Collapsible Date Filter
+  // Collapsible Date Filter
   const [dateFilterOpen, setDateFilterOpen] = useState(true);
 
   useEffect(() => {
@@ -419,13 +421,12 @@ export default function App() {
   const isAdminNow = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
   const canEditAny = isAdminNow;
 
-  // ✅ Member can edit/update tasks (priority, due date, status, etc.) — only for their own tasks
   const canEditTask = (task) => {
     if (isAdminNow) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  // Auth
+  // Auth handlers
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -440,13 +441,11 @@ export default function App() {
     downloadCSV(`tasks_${stamp}.csv`, tableFilteredTasks);
   }
 
-  // ✅ Quick date buttons
+  // Quick date buttons
   function setThisWeek() {
     const now = new Date();
-    const from = startOfWeekMonday(now);
-    const to = endOfWeekSunday(now);
-    setDueFrom(fmt(from));
-    setDueTo(fmt(to));
+    setDueFrom(fmt(startOfWeekMonday(now)));
+    setDueTo(fmt(endOfWeekSunday(now)));
   }
 
   function setThisMonth() {
@@ -473,25 +472,37 @@ export default function App() {
               </div>
 
               <div className="dtt-muted" style={{ marginTop: 6 }}>
-                Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
+                Signed in: {userEmail || "Unknown"} ({role}
+                {userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
               </div>
             </div>
 
             <div className="dtt-actions">
-              <button className="dtt-btn" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
+              <button
+                className="dtt-btn"
+                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+              >
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>
 
               {!isAuthed ? (
-                <button className="dtt-btnPrimary" onClick={handleLogin}>Login</button>
+                <button className="dtt-btnPrimary" onClick={handleLogin}>
+                  Login
+                </button>
               ) : (
                 <>
-                  <button className="dtt-btn" onClick={handleLogout}>Logout</button>
-                  <button className="dtt-btn" onClick={handleExportCSV}>Export CSV</button>
+                  <button className="dtt-btn" onClick={handleLogout}>
+                    Logout
+                  </button>
+                  <button className="dtt-btn" onClick={handleExportCSV}>
+                    Export CSV
+                  </button>
                 </>
               )}
 
-              <span className="dtt-pill">{loadingTasks ? "Loading…" : `${tasks.length} tasks`}</span>
+              <span className="dtt-pill">
+                {loadingTasks ? "Loading…" : `${tasks.length} tasks`}
+              </span>
             </div>
           </div>
         </div>
@@ -499,20 +510,37 @@ export default function App() {
         {/* Tabs */}
         <div className="dtt-tabsRow">
           <div className="dtt-tabs">
-            <button className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`} onClick={() => setTab("dashboard")}>
+            <button
+              className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("dashboard")}
+            >
               Dashboard
             </button>
 
-            <button className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`} onClick={() => setTab("tasks")}>
+            <button
+              className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("tasks")}
+            >
               Tasks
             </button>
 
-            <button className={`dtt-tab ${tab === "kanban" ? "dtt-tabActive" : ""}`} onClick={() => setTab("kanban")}>
+            <button
+              className={`dtt-tab ${tab === "kanban" ? "dtt-tabActive" : ""}`}
+              onClick={() => setTab("kanban")}
+            >
               Kanban
             </button>
           </div>
 
-          <button className="dtt-btnPrimary" onClick={() => setShowModal(true)}>+ New Task</button>
+          <button
+            className="dtt-btnPrimary"
+            onClick={() => {
+              setEditingTask(null);
+              setShowModal(true);
+            }}
+          >
+            + New Task
+          </button>
         </div>
 
         {/* Content */}
@@ -523,9 +551,17 @@ export default function App() {
             </div>
           ) : null}
 
-          {/* ✅ Collapsible Date Range Filter (Dashboard + Tasks + Kanban) */}
+          {/* Date Range Filter (Dashboard + Tasks + Kanban) */}
           <div className="dtt-card" style={{ padding: 14, marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
               <div style={{ fontWeight: 1000, fontSize: 16 }}>Date Range Filter</div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -533,15 +569,29 @@ export default function App() {
                   {dateFilterOpen ? "Hide" : "Show"}
                 </button>
 
-                <button className="dtt-btn" onClick={setThisWeek}>This Week</button>
-                <button className="dtt-btn" onClick={setThisMonth}>This Month</button>
+                <button className="dtt-btn" onClick={setThisWeek}>
+                  This Week
+                </button>
+                <button className="dtt-btn" onClick={setThisMonth}>
+                  This Month
+                </button>
 
-                <button className="dtt-btn" onClick={clearDates}>Clear</button>
+                <button className="dtt-btn" onClick={clearDates}>
+                  Clear
+                </button>
               </div>
             </div>
 
             {dateFilterOpen ? (
-              <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
                 <input
                   className="dtt-input"
                   type="date"
@@ -563,7 +613,13 @@ export default function App() {
           {tab === "dashboard" && (
             <div style={{ display: "grid", gap: 14 }}>
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                  }}
+                >
                   <div style={{ fontWeight: 1000, fontSize: 16 }}>Overall Team</div>
                   <div className="dtt-muted">{baseFilteredTasks.length} tasks</div>
                 </div>
@@ -572,7 +628,13 @@ export default function App() {
               <MiniDashboard counts={teamCounts} theme={theme} />
 
               <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                  }}
+                >
                   <div style={{ fontWeight: 1000, fontSize: 16 }}>My Tasks</div>
                   <div className="dtt-muted">
                     Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
@@ -590,20 +652,23 @@ export default function App() {
                 <div className="dtt-muted">Loading tasks…</div>
               ) : (
                 <TaskTable
-  tasks={tableFilteredTasks}
-  allOwnerOptions={ownerOptions}
-  allTypeOptions={typeOptions}
-  query={query}
-  setQuery={setQuery}
-  statusFilter={statusFilter}
-  setStatusFilter={setStatusFilter}
-  ownerFilter={ownerFilter}
-  setOwnerFilter={setOwnerFilter}
-  onDelete={async (id) => deleteTask(id)}
-  onUpdateTask={async (t) => updateTask(t)}
-  canEditAny={canEditAny}
-  canEditTask={canEditTask}
-/>
+                  tasks={tableFilteredTasks}
+                  allOwnerOptions={ownerOptions}
+                  allTypeOptions={typeOptions}
+                  query={query}
+                  setQuery={setQuery}
+                  statusFilter={statusFilter}
+                  setStatusFilter={setStatusFilter}
+                  ownerFilter={ownerFilter}
+                  setOwnerFilter={setOwnerFilter}
+                  onDelete={async (id) => deleteTask(id)}
+                  onEdit={(task) => {
+                    setEditingTask(task);
+                    setShowModal(true);
+                  }}
+                  canEditAny={canEditAny}
+                  canEditTask={canEditTask}
+                />
               )}
             </>
           )}
@@ -624,21 +689,40 @@ export default function App() {
           )}
         </div>
 
-        {/* Modal */}
+        {/* Modal: Create / Edit */}
         <Modal
           open={showModal}
-          title="Create a new task"
-          subtitle="Fill details and save."
-          onClose={() => setShowModal(false)}
+          title={editingTask ? "Edit task" : "Create a new task"}
+          subtitle={editingTask ? "Update details and save." : "Fill details and save."}
+          onClose={() => {
+            setShowModal(false);
+            setEditingTask(null);
+          }}
         >
           <TaskForm
-            onSubmit={async (task) => {
-              const ownerEmail = ownerEmailFromOwner(task.owner) || "";
-              await createTask({ ...task, ownerEmail, sortOrder: 0 });
+            mode={editingTask ? "edit" : "create"}
+            initialTask={editingTask}
+            onSubmit={async (values) => {
+              if (editingTask) {
+                // EDIT: merge immutable fields back
+                await updateTask({
+                  ...editingTask,
+                  ...values,
+                });
+              } else {
+                // CREATE
+                const ownerEmail = ownerEmailFromOwner(values.owner) || "";
+                await createTask({ ...values, ownerEmail, sortOrder: 0 });
+              }
+
               setShowModal(false);
+              setEditingTask(null);
               setTab("tasks");
             }}
-            onCancel={() => setShowModal(false)}
+            onCancel={() => {
+              setShowModal(false);
+              setEditingTask(null);
+            }}
           />
         </Modal>
       </div>
