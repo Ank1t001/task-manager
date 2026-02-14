@@ -1,13 +1,43 @@
+import { useEffect, useMemo, useRef } from "react";
+
 export default function MiniDashboard({ title, counts, theme = "light" }) {
   const dark = theme === "dark";
   const s = styles(dark);
 
-  const items = [
-    { key: "total", label: "Total Tasks", value: counts?.total ?? 0, emoji: "📌", accent: "blue" },
-    { key: "overdue", label: "Overdue", value: counts?.overdue ?? 0, emoji: "🔴", accent: "red" },
-    { key: "inProgress", label: "In Progress", value: counts?.inProgress ?? 0, emoji: "⏳", accent: "amber" },
-    { key: "done", label: "Done", value: counts?.done ?? 0, emoji: "✅", accent: "green" },
-  ];
+  const items = useMemo(
+    () => [
+      { key: "total", label: "Total Tasks", value: counts?.total ?? 0, emoji: "📌", accent: "blue" },
+      { key: "overdue", label: "Overdue", value: counts?.overdue ?? 0, emoji: "🔴", accent: "red" },
+      { key: "inProgress", label: "In Progress", value: counts?.inProgress ?? 0, emoji: "⏳", accent: "amber" },
+      { key: "done", label: "Done", value: counts?.done ?? 0, emoji: "✅", accent: "green" },
+    ],
+    [counts]
+  );
+
+  const prevRef = useRef({});
+  const cardRefs = useRef({});
+
+  useEffect(() => {
+    for (const it of items) {
+      const prev = prevRef.current[it.key];
+      const next = it.value;
+
+      if (prev !== undefined && prev !== next) {
+        const el = cardRefs.current[it.key];
+        if (el?.animate) {
+          el.animate(
+            [
+              { transform: "scale(1)", filter: "brightness(1)" },
+              { transform: "scale(1.02)", filter: "brightness(1.05)" },
+              { transform: "scale(1)", filter: "brightness(1)" },
+            ],
+            { duration: 320, easing: "ease-out" }
+          );
+        }
+      }
+      prevRef.current[it.key] = next;
+    }
+  }, [items]);
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -15,7 +45,11 @@ export default function MiniDashboard({ title, counts, theme = "light" }) {
 
       <div style={s.grid}>
         {items.map((it) => (
-          <div key={it.key} style={{ ...s.card, ...accentCard(dark, it.accent) }}>
+          <div
+            key={it.key}
+            ref={(node) => (cardRefs.current[it.key] = node)}
+            style={{ ...s.card, ...accentCard(dark, it.accent) }}
+          >
             <div style={s.top}>
               <span style={s.icon}>{it.emoji}</span>
               <span style={s.label}>{it.label}</span>
@@ -48,16 +82,12 @@ function styles(dark) {
     },
     top: { display: "flex", alignItems: "center", gap: 10 },
     icon: { fontSize: 18 },
-
-    // ✅ Make label HIGH contrast
     label: {
       fontWeight: 950,
       fontSize: 14,
       color: dark ? "rgba(255,255,255,0.88)" : "rgba(15,23,42,0.82)",
       letterSpacing: 0.2,
     },
-
-    // ✅ Make number HIGH contrast
     value: {
       marginTop: 12,
       fontSize: 30,
@@ -68,7 +98,6 @@ function styles(dark) {
 }
 
 function accentCard(dark, accent) {
-  // Strong, visible accent outlines + subtle glow
   const glow = {
     blue: dark ? "rgba(99,102,241,0.20)" : "rgba(99,102,241,0.18)",
     red: dark ? "rgba(239,68,68,0.22)" : "rgba(239,68,68,0.18)",

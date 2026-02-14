@@ -6,7 +6,7 @@ import Modal from "./components/Modal";
 import KanbanBoard from "./components/KanbanBoard";
 
 const ADMIN_EMAIL = "ankit@digijabber.com";
-const BUILD_VERSION = "v11.2-kanban";
+const BUILD_VERSION = "v12.0-dashboard-filters-anim-edit";
 
 const TEAM_MAP = {
   "ankit@digijabber.com": "Ankit",
@@ -21,30 +21,44 @@ const TEAM_MAP = {
 
 const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
 
-/** ----- Metrics (Total, Overdue, In Progress, Done) ----- */
 function statusKey(status = "") {
   return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
 }
+
+function normalizeStatusForUI(status) {
+  const s = statusKey(status);
+  if (s === "blocked") return "In Progress";
+  if (s === "inprogress") return "In Progress";
+  if (s === "todo") return "To Do";
+  if (s === "done") return "Done";
+  return status || "To Do";
+}
+
 function startOfToday() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
 function dueDateAsDate(dueDate) {
   if (!dueDate) return null;
   const d = new Date(`${dueDate}T00:00:00`);
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
+
 function isPastDue(task) {
   const due = dueDateAsDate(task?.dueDate);
   if (!due) return false;
   return due < startOfToday();
 }
+
 function isOverdueBucket(task) {
   const s = statusKey(task?.status);
   const active = s === "todo" || s === "inprogress" || s === "blocked";
   return active && isPastDue(task);
 }
+
+// ✅ Dashboard counts: Total, Overdue, In Progress, Done
 function computeDashboardCounts(taskList) {
   const total = taskList.length;
   let overdue = 0;
@@ -68,17 +82,6 @@ function computeDashboardCounts(taskList) {
   return { total, overdue, inProgress, done };
 }
 
-/** ----- Status normalization (Blocked -> In Progress) ----- */
-function normalizeStatusForUI(status) {
-  const s = statusKey(status);
-  if (s === "blocked") return "In Progress";
-  if (s === "inprogress") return "In Progress";
-  if (s === "todo") return "To Do";
-  if (s === "done") return "Done";
-  return status || "To Do";
-}
-
-/** ----- DB row <-> UI mapping (includes sortOrder) ----- */
 function dbRowToUiTask(row) {
   return {
     id: row.id,
@@ -86,7 +89,7 @@ function dbRowToUiTask(row) {
     description: row.description || "",
     owner: row.owner || "Ankit",
     ownerEmail: row.ownerEmail || "",
-    section: row.type || "Other",
+    section: row.type || "Other", // UI label is "Type"
     priority: row.priority || "Medium",
     status: normalizeStatusForUI(row.status),
     dueDate: row.dueDate || "",
@@ -98,7 +101,6 @@ function dbRowToUiTask(row) {
 }
 
 function uiTaskToDbPayload(task) {
-  const cleanedStatus = normalizeStatusForUI(task.status);
   return {
     id: task.id,
     taskName: task.taskName || "",
@@ -107,14 +109,14 @@ function uiTaskToDbPayload(task) {
     ownerEmail: task.ownerEmail || "",
     type: task.section || "Other",
     priority: task.priority || "Medium",
-    status: cleanedStatus,
+    status: normalizeStatusForUI(task.status),
     dueDate: task.dueDate || "",
     externalStakeholders: task.externalStakeholders || "",
     sortOrder: task.sortOrder ?? 0,
   };
 }
 
-/** ----- Date range helper (dueDate is YYYY-MM-DD) ----- */
+// ✅ Due date filter range check (YYYY-MM-DD)
 function inDateRange(dueDate, from, to) {
   if (!from && !to) return true;
   if (!dueDate) return false;
@@ -123,7 +125,6 @@ function inDateRange(dueDate, from, to) {
   return true;
 }
 
-/** ----- CSV Export ----- */
 function downloadCSV(filename, rows) {
   const headers = [
     "Task Name",
@@ -178,7 +179,43 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-/** Owner -> Email mapping for new tasks */
+// helper: YYYY-MM-DD
+function fmt(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function startOfWeekMonday(d) {
+  const x = new Date(d);
+  const day = x.getDay(); // 0 Sun ... 6 Sat
+  const diff = (day === 0 ? -6 : 1) - day; // Monday start
+  x.setDate(x.getDate() + diff);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfWeekSunday(d) {
+  const s = startOfWeekMonday(d);
+  const e = new Date(s);
+  e.setDate(e.getDate() + 6);
+  e.setHours(0, 0, 0, 0);
+  return e;
+}
+
+function startOfMonth(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), 1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfMonth(d) {
+  const x = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
 function ownerEmailFromOwner(owner) {
   const o = String(owner || "").trim().toLowerCase();
   if (!o) return "";
@@ -208,17 +245,22 @@ export default function App() {
 
   // Global filters
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All"); // To Do / In Progress / Done
+  const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter] = useState("All");
+
+  // ✅ Date Range Filter (global for dashboard + tasks + kanban)
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
+
+  // ✅ Collapsible Date Filter
+  const [dateFilterOpen, setDateFilterOpen] = useState(true);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("dtt_theme", theme);
   }, [theme]);
 
-  /** Identity */
+  // Identity
   useEffect(() => {
     let alive = true;
 
@@ -264,7 +306,6 @@ export default function App() {
     };
   }, []);
 
-  /** Load tasks */
   async function loadTasks() {
     try {
       setLoadingTasks(true);
@@ -291,7 +332,6 @@ export default function App() {
     loadTasks();
   }, []);
 
-  /** CRUD */
   async function createTask(uiTask) {
     const payload = uiTaskToDbPayload(uiTask);
     const res = await fetch("/api/tasks", {
@@ -320,13 +360,17 @@ export default function App() {
     await loadTasks();
   }
 
-  /** Owner options */
   const ownerOptions = useMemo(() => {
     const set = new Set(tasks.map((t) => t.owner).filter(Boolean));
     return ["All", ...Array.from(set).sort()];
   }, [tasks]);
 
-  /** Base filtered tasks */
+  const typeOptions = useMemo(() => {
+    const set = new Set(tasks.map((t) => t.section).filter(Boolean));
+    return ["All", ...Array.from(set).sort()];
+  }, [tasks]);
+
+  // Base filtered tasks (global)
   const baseFilteredTasks = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -345,15 +389,16 @@ export default function App() {
     });
   }, [tasks, query, statusFilter, dueFrom, dueTo]);
 
-  /** Table/Kanban filtered tasks include owner filter */
+  // Table/Kanban apply owner filter
   const tableFilteredTasks = useMemo(() => {
     if (ownerFilter === "All") return baseFilteredTasks;
     return baseFilteredTasks.filter((t) => t.owner === ownerFilter);
   }, [baseFilteredTasks, ownerFilter]);
 
-  /** Dashboard counts */
+  // Dashboard counts (Overall Team)
   const teamCounts = useMemo(() => computeDashboardCounts(baseFilteredTasks), [baseFilteredTasks]);
 
+  // My tasks section owner selection
   const selectedOwner = useMemo(() => {
     if (ownerFilter !== "All") return ownerFilter;
     return userName || "";
@@ -370,15 +415,17 @@ export default function App() {
     [selectedOwnerTasks]
   );
 
-  /** Permissions */
+  // Permissions
   const isAdminNow = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
   const canEditAny = isAdminNow;
+
+  // ✅ Member can edit/update tasks (priority, due date, status, etc.) — only for their own tasks
   const canEditTask = (task) => {
     if (isAdminNow) return true;
     return (task?.owner || "").trim() === (userName || "").trim();
   };
 
-  /** Auth */
+  // Auth
   function handleLogin() {
     const returnTo = window.location.origin + "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
@@ -391,6 +438,26 @@ export default function App() {
   function handleExportCSV() {
     const stamp = new Date().toISOString().slice(0, 10);
     downloadCSV(`tasks_${stamp}.csv`, tableFilteredTasks);
+  }
+
+  // ✅ Quick date buttons
+  function setThisWeek() {
+    const now = new Date();
+    const from = startOfWeekMonday(now);
+    const to = endOfWeekSunday(now);
+    setDueFrom(fmt(from));
+    setDueTo(fmt(to));
+  }
+
+  function setThisMonth() {
+    const now = new Date();
+    setDueFrom(fmt(startOfMonth(now)));
+    setDueTo(fmt(endOfMonth(now)));
+  }
+
+  function clearDates() {
+    setDueFrom("");
+    setDueTo("");
   }
 
   return (
@@ -406,8 +473,7 @@ export default function App() {
               </div>
 
               <div className="dtt-muted" style={{ marginTop: 6 }}>
-                Signed in: {userEmail || "Unknown"} ({role}
-                {userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
+                Signed in: {userEmail || "Unknown"} ({role}{userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
               </div>
             </div>
 
@@ -457,94 +523,66 @@ export default function App() {
             </div>
           ) : null}
 
+          {/* ✅ Collapsible Date Range Filter (Dashboard + Tasks + Kanban) */}
+          <div className="dtt-card" style={{ padding: 14, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ fontWeight: 1000, fontSize: 16 }}>Date Range Filter</div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button className="dtt-btn" onClick={() => setDateFilterOpen((v) => !v)}>
+                  {dateFilterOpen ? "Hide" : "Show"}
+                </button>
+
+                <button className="dtt-btn" onClick={setThisWeek}>This Week</button>
+                <button className="dtt-btn" onClick={setThisMonth}>This Month</button>
+
+                <button className="dtt-btn" onClick={clearDates}>Clear</button>
+              </div>
+            </div>
+
+            {dateFilterOpen ? (
+              <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  className="dtt-input"
+                  type="date"
+                  value={dueFrom}
+                  onChange={(e) => setDueFrom(e.target.value)}
+                  style={{ width: 170 }}
+                />
+                <input
+                  className="dtt-input"
+                  type="date"
+                  value={dueTo}
+                  onChange={(e) => setDueTo(e.target.value)}
+                  style={{ width: 170 }}
+                />
+              </div>
+            ) : null}
+          </div>
+
           {tab === "dashboard" && (
-  <div style={{ display: "grid", gap: 14 }}>
-    {/* ✅ Date Range Filter bar */}
-    <div className="dtt-card" style={{ padding: 14 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ fontWeight: 950, fontSize: 16 }}>Date Range Filter</div>
+            <div style={{ display: "grid", gap: 14 }}>
+              <div className="dtt-card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 1000, fontSize: 16 }}>Overall Team</div>
+                  <div className="dtt-muted">{baseFilteredTasks.length} tasks</div>
+                </div>
+              </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            className="dtt-input"
-            type="date"
-            value={dueFrom}
-            onChange={(e) => setDueFrom(e.target.value)}
-            title="Due date from"
-            style={{ width: 170 }}
-          />
-          <input
-            className="dtt-input"
-            type="date"
-            value={dueTo}
-            onChange={(e) => setDueTo(e.target.value)}
-            title="Due date to"
-            style={{ width: 170 }}
-          />
-          <button
-            className="dtt-btn"
-            type="button"
-            onClick={() => {
-              setDueFrom("");
-              setDueTo("");
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      </div>
+              <MiniDashboard counts={teamCounts} theme={theme} />
 
-      <div className="dtt-muted" style={{ marginTop: 8 }}>
-        Applies to Dashboard tiles and Tasks view.
-      </div>
-    </div>
+              <div className="dtt-card" style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 1000, fontSize: 16 }}>My Tasks</div>
+                  <div className="dtt-muted">
+                    Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
+                  </div>
+                </div>
+              </div>
 
-    {/* ✅ Overall Team header */}
-    <div className="dtt-card" style={{ padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 950, fontSize: 16 }}>Overall Team</div>
-        <div className="dtt-muted">{baseFilteredTasks.length} tasks (filtered)</div>
-      </div>
-
-      <div className="dtt-muted" style={{ marginTop: 6 }}>
-        Filters applied: Status={statusFilter}, Due={dueFrom || "—"} → {dueTo || "—"}
-        {query ? `, Search="${query}"` : ""}
-        {ownerFilter !== "All" ? `, Owner=${ownerFilter} (table only)` : ""}
-      </div>
-    </div>
-
-    {/* ✅ Overall tiles */}
-    <MiniDashboard counts={teamCounts} theme={theme} />
-
-    {/* ✅ My/Selected Owner header */}
-    <div className="dtt-card" style={{ padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 950, fontSize: 16 }}>
-          {ownerFilter !== "All" ? "Selected Owner" : "My"} Tasks
-        </div>
-        <div className="dtt-muted">
-          Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
-        </div>
-      </div>
-    </div>
-
-    {/* ✅ My/Selected Owner tiles */}
-    <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
-
-    <div className="dtt-muted" style={{ marginTop: 2 }}>
-      Debug: total={tasks.length}, baseFiltered={baseFilteredTasks.length}, selectedOwner=
-      {selectedOwner || "—"}
-    </div>
-  </div>
-)}
+              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
+            </div>
+          )}
 
           {tab === "tasks" && (
             <>
@@ -554,6 +592,7 @@ export default function App() {
                 <TaskTable
                   tasks={tableFilteredTasks}
                   allOwnerOptions={ownerOptions}
+                  allTypeOptions={typeOptions}
                   query={query}
                   setQuery={setQuery}
                   statusFilter={statusFilter}
