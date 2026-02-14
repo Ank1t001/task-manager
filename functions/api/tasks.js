@@ -4,7 +4,7 @@ import { logActivity } from "./_activity";
 
 function normalizeStatus(s) {
   const v = String(s || "").trim().toLowerCase();
-  if (v === "blocked") return "In Progress";
+  if (v === "blocked") return "Blocked";
   if (v === "inprogress") return "In Progress";
   if (v === "todo") return "To Do";
   if (v === "done") return "Done";
@@ -203,6 +203,26 @@ export async function onRequestPut(context) {
     stage: String(body.stage ?? existing.stage ?? "").trim(),
     sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : Number(existing.sortOrder ?? 0),
   };
+
+  // IMPORTANT: If a non-admin is changing project/stage, they must be allowed to move into the NEW stage.
+  // - Task owner can move their own tasks anywhere.
+  // - Stage owner can move tasks into stages they own.
+  // - Others cannot move tasks across stages/projects.
+  if (!user.isAdmin) {
+    const stageChanged =
+      String(next.projectName || "") !== String(existing.projectName || "") ||
+      String(next.stage || "") !== String(existing.stage || "");
+
+    if (stageChanged) {
+      const canMoveIntoNewStage = await isStageOwner(db, user.email, next.projectName, next.stage);
+      const isTaskOwner = existingOwnerEmail === String(user.email || "").toLowerCase();
+      if (!isTaskOwner && !canMoveIntoNewStage) {
+        return forbidden(
+          "You cannot move this task into a stage you don't own (unless you are the task owner)."
+        );
+      }
+    }
+  }
 
   // Member: cannot reassign owner unless admin (stage owner can manage status/priority/due/stage, but not owner email)
   if (!user.isAdmin) {

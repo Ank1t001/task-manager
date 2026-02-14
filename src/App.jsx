@@ -30,7 +30,7 @@ function statusKey(status = "") {
 
 function normalizeStatusForUI(status) {
   const s = statusKey(status);
-  if (s === "blocked") return "In Progress";
+  if (s === "blocked") return "Blocked";
   if (s === "inprogress") return "In Progress";
   if (s === "todo") return "To Do";
   if (s === "done") return "Done";
@@ -270,7 +270,14 @@ export default function App() {
   const [dateFilterOpen, setDateFilterOpen] = useState(true);
 
   // Projects UI
-  const [activeProject, setActiveProject] = useState("");
+  const [activeProject, setActiveProject] = useState(null); // full project object from /api/projects
+
+  // Create modal prefills (for creating task inside a project/stage)
+  const [createPrefill, setCreatePrefill] = useState(null);
+
+  // Stage owner cache (for UI permissions)
+  // { [projectName]: { [stageName]: stageOwnerEmail } }
+  const [stageOwnerCache, setStageOwnerCache] = useState({});
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -337,11 +344,46 @@ export default function App() {
       const data = await res.json();
       const uiTasks = Array.isArray(data) ? data.map(dbRowToUiTask) : [];
       setTasks(uiTasks);
+
+      // refresh stage owner cache for any projects we see
+      const projects = Array.from(
+        new Set(uiTasks.map((t) => (t.projectName || "").trim()).filter(Boolean))
+      );
+      if (projects.length) {
+        void loadStageOwners(projects);
+      }
     } catch (e) {
       setTasks([]);
       setTasksError(e?.message || "Failed to load tasks");
     } finally {
       setLoadingTasks(false);
+    }
+  }
+
+  async function loadStageOwners(projectNames) {
+    try {
+      const nextCache = { ...stageOwnerCache };
+
+      for (const projectName of projectNames) {
+        if (nextCache[projectName]) continue; // already cached
+
+        const res = await fetch(`/api/stages?projectName=${encodeURIComponent(projectName)}`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const stages = Array.isArray(data?.stages) ? data.stages : [];
+
+        const map = {};
+        for (const s of stages) {
+          const stageName = String(s.stageName || "").trim();
+          const stageOwnerEmail = normalizeEmail(s.stageOwnerEmail || "");
+          if (stageName) map[stageName] = stageOwnerEmail;
+        }
+        nextCache[projectName] = map;
+      }
+
+      setStageOwnerCache(nextCache);
+    } catch {
+      // best-effort cache; ignore
     }
   }
 
@@ -360,7 +402,6 @@ export default function App() {
       const t = await res.text().catch(() => "");
       throw new Error(`Create failed (${res.status}) ${t}`);
     }
-    await loadTasks();
   }
 
   async function updateTask(uiTask) {
@@ -374,7 +415,6 @@ export default function App() {
       const t = await res.text().catch(() => "");
       throw new Error(`Update failed (${res.status}) ${t}`);
     }
-    await loadTasks();
   }
 
   async function deleteTask(id) {
@@ -383,7 +423,6 @@ export default function App() {
       const t = await res.text().catch(() => "");
       throw new Error(`Delete failed (${res.status}) ${t}`);
     }
-    await loadTasks();
   }
 
   const ownerOptions = useMemo(() => {
@@ -449,7 +488,15 @@ export default function App() {
 
   const canEditTask = (task) => {
     if (isAdminNow) return true;
-    return (task?.owner || "").trim() === (userName || "").trim();
+    const me = normalizeEmail(userEmail);
+    const ownerEmail = normalizeEmail(task?.ownerEmail || "");
+    if (me && ownerEmail && me === ownerEmail) return true;
+
+    // Stage owner can edit tasks in that stage (best-effort UI check; API is the source of truth)
+    const projectName = String(task?.projectName || "").trim();
+    const stageName = String(task?.stage || "").trim();
+    const stageOwnerEmail = normalizeEmail(stageOwnerCache?.[projectName]?.[stageName] || "");
+    return !!(me && stageOwnerEmail && me === stageOwnerEmail);
   };
 
   // Auth handlers
@@ -691,7 +738,10 @@ export default function App() {
                   setStatusFilter={setStatusFilter}
                   ownerFilter={ownerFilter}
                   setOwnerFilter={setOwnerFilter}
-                  onDelete={async (id) => deleteTask(id)}
+                  onDelete={async (id) => {
+                    await deleteTask(id);
+                    await loadTasks();
+                  }}
                   onEdit={(task) => {
                     setEditingTask(task);
                     setShowModal(true);
@@ -710,7 +760,10 @@ export default function App() {
               ) : (
                 <KanbanBoard
                   tasks={tableFilteredTasks}
-                  onUpdateTask={async (t) => updateTask(t)}
+                  onUpdateTask={async (t) => {
+                    await updateTask(t);
+                    await loadTasks();
+                  }}
                   canEditAny={canEditAny}
                   canEditTask={canEditTask}
                 />
@@ -722,62 +775,43 @@ export default function App() {
             <>
               {!activeProject ? (
                 <Projects
-                  onOpenProject={(name) => {
-                    setActiveProject(name);
-                  }}
+                  meEmail={userEmail}
+                  meName={userName}
+                  isAdmin={canEditAny}
+                  onOpenProject={(p) => setActiveProject(p)}
                 />
               ) : (
                 <ProjectView
-  projectName={activeProject}
-  userIsAdmin={canEditAny}
-  onBack={() => setActiveProject("")}
-  onEditTask={(dbRowTask) => {
-    setEditingTask(dbRowToUiTask(dbRowTask));
-    setShowModal(true);
-  }}
-  onCreateTaskInStage={({ projectName, stage }) => {
-    // open create modal with prefilled Project + Stage
-    setEditingTask({
-      taskName: "",
-      description: "",
-      owner: userName || "Ankit",
-      ownerEmail: userEmail || "",
-      section: "Other",
-      priority: "Medium",
-      dueDate: "",
-      status: "To Do",
-      externalStakeholders: "",
-      projectName,
-      stage,
-      sortOrder: 0,
-    });
-    setShowModal(true);
-  }}
-  onOpenTaskById={async (taskId) => {
-    // Try from already-loaded tasks
-    const found = tasks.find((t) => String(t.id) === String(taskId));
-    if (found) {
-      setEditingTask(found);
-      setShowModal(true);
-      return;
-    }
-
-    // Fallback: fetch project tasks then find
-    try {
-      const res = await fetch(`/api/tasks?projectName=${encodeURIComponent(activeProject)}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      const uiList = Array.isArray(data) ? data.map(dbRowToUiTask) : [];
-      const f2 = uiList.find((t) => String(t.id) === String(taskId));
-      if (f2) {
-        setEditingTask(f2);
-        setShowModal(true);
-      }
-    } catch {
-      // ignore
-    }
-  }}
-/>
+                  projectName={activeProject.name}
+                  projectOwnerName={activeProject.ownerName}
+                  projectOwnerEmail={activeProject.ownerEmail}
+                  projectArchived={activeProject.archived}
+                  meEmail={userEmail}
+                  meName={userName}
+                  userIsAdmin={canEditAny}
+                  onBack={() => setActiveProject(null)}
+                  onProjectChanged={() => {
+                    setActiveProject(null);
+                    void loadTasks();
+                  }}
+                  onEditTask={(t) => {
+                    setCreatePrefill(null);
+                    setEditingTask(dbRowToUiTask(t));
+                    setShowModal(true);
+                  }}
+                  onCreateTaskInStage={({ projectName, stage }) => {
+                    setEditingTask(null);
+                    setCreatePrefill({ projectName, stage });
+                    setShowModal(true);
+                  }}
+                  onOpenTaskById={(taskId) => {
+                    const found = tasks.find((x) => x.id === taskId);
+                    if (!found) return;
+                    setCreatePrefill(null);
+                    setEditingTask(found);
+                    setShowModal(true);
+                  }}
+                />
               )}
             </>
           )}
@@ -795,13 +829,10 @@ export default function App() {
         >
           <TaskForm
             mode={editingTask ? "edit" : "create"}
-            initialTask={editingTask}
+            initialTask={editingTask || createPrefill}
             onSubmit={async (values) => {
               if (editingTask) {
-                await updateTask({
-                  ...editingTask,
-                  ...values,
-                });
+                await updateTask({ ...editingTask, ...values });
               } else {
                 const ownerEmail = ownerEmailFromOwner(values.owner) || "";
                 await createTask({ ...values, ownerEmail, sortOrder: 0 });
@@ -809,12 +840,13 @@ export default function App() {
 
               setShowModal(false);
               setEditingTask(null);
+              setCreatePrefill(null);
               await loadTasks();
-              // keep the current tab (don’t force switch)
             }}
             onCancel={() => {
               setShowModal(false);
               setEditingTask(null);
+              setCreatePrefill(null);
             }}
           />
         </Modal>
