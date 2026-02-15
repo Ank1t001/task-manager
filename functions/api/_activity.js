@@ -1,51 +1,73 @@
 // functions/api/_activity.js
-
-export function uid() {
-  return crypto.randomUUID();
-}
+import { json } from "./_auth";
 
 export function nowIso() {
   return new Date().toISOString();
 }
 
-/**
- * Generic audit writer used by tenant bootstrap + admin features.
- * Table: activity_log
- */
-export async function writeAudit(db, entry) {
-  // entry: { tenantId, projectName, taskId, actorEmail, actorName, action, summary, meta }
-  const id = uid();
-  const createdAt = nowIso();
-  const metaStr = entry.meta ? JSON.stringify(entry.meta) : "";
+export function uid() {
+  // Works in Workers runtime
+  return crypto.randomUUID();
+}
 
-  await db
-    .prepare(
-      `INSERT INTO activity_log (
-        id, tenantId, projectName, taskId,
-        actorEmail, actorName, action, summary,
-        meta, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      id,
-      entry.tenantId || "",
-      entry.projectName || "",
-      entry.taskId || "",
-      entry.actorEmail || "",
-      entry.actorName || "",
-      entry.action || "",
-      entry.summary || "",
-      metaStr,
-      createdAt
-    )
-    .run();
+export async function writeAudit(ctx, {
+  tenantId,
+  projectName = "",
+  taskId = "",
+  actorEmail = "",
+  actorName = "",
+  action = "",
+  summary = "",
+  meta = {},
+}) {
+  const createdAt = nowIso();
+  const id = uid();
+
+  await ctx.env.DB.prepare(
+    `INSERT INTO activity_log
+      (id, tenantId, projectName, taskId, actorEmail, actorName, action, summary, meta, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id,
+    tenantId,
+    projectName,
+    taskId,
+    actorEmail,
+    actorName,
+    action,
+    summary,
+    JSON.stringify(meta || {}),
+    createdAt
+  ).run();
 
   return { id, createdAt };
 }
 
-/**
- * Backward-compatible name (your tasks API currently imports this)
- */
-export async function logActivity(db, entry) {
-  return writeAudit(db, entry);
+export async function logActivity(ctx, user, action, summary, meta = {}) {
+  const tenantId = user?.tenantId || "";
+  await writeAudit(ctx, {
+    tenantId,
+    projectName: meta.projectName || "",
+    taskId: meta.taskId || "",
+    actorEmail: user?.email || "",
+    actorName: user?.name || "",
+    action,
+    summary,
+    meta,
+  });
+}
+
+export async function listAudit(ctx, tenantId, limit = 200) {
+  const rows = await ctx.env.DB.prepare(
+    `SELECT * FROM activity_log
+     WHERE tenantId = ?
+     ORDER BY createdAt DESC
+     LIMIT ?`
+  ).bind(tenantId, limit).all();
+
+  return rows.results || [];
+}
+
+export function ok(req, message = "ok") {
+  return json(req, { ok: true, message });
 }

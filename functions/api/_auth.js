@@ -1,35 +1,25 @@
 import { jwtVerify, createRemoteJWKSet } from "jose";
 
-const jwksCache = new Map();
+const JWKS = (env) =>
+  createRemoteJWKSet(
+    new URL(`https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`)
+  );
 
-export async function requireAuth(request, env) {
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return { ok: false, status: 401, body: { error: "Unauthorized" } };
-  }
+export async function getUser(request, env) {
+  const auth = request.headers.get("Authorization");
+  if (!auth || !auth.startsWith("Bearer ")) return null;
 
-  const token = authHeader.replace("Bearer ", "");
+  const token = auth.split(" ")[1];
 
   try {
-    const jwks = createRemoteJWKSet(
-      new URL(`${env.AUTH0_ISSUER}.well-known/jwks.json`)
-    );
-
-    const { payload } = await jwtVerify(token, jwks, {
+    const { payload } = await jwtVerify(token, JWKS(env), {
       issuer: env.AUTH0_ISSUER,
       audience: env.AUTH0_AUDIENCE,
     });
 
-    return {
-      ok: true,
-      user: {
-        userId: payload.sub,
-        email: payload.email,
-        name: payload.name,
-      },
-    };
-  } catch (err) {
-    return { ok: false, status: 401, body: { error: "Unauthorized" } };
+    return payload;
+  } catch (e) {
+    return null;
   }
 }
 
@@ -38,4 +28,16 @@ export function json(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+export function unauthorized() {
+  return json({ error: "Unauthorized" }, 401);
+}
+
+export function forbidden() {
+  return json({ error: "Forbidden" }, 403);
+}
+
+export function badRequest(msg = "Bad request") {
+  return json({ error: msg }, 400);
 }
