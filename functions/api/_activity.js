@@ -1,35 +1,40 @@
-import { json } from "./_auth";
-
-export const nowIso = () => new Date().toISOString();
-
-export const uid = () => {
-  // Works in Workers runtime
-  return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`).toString();
-};
-
-// Writes to audit_log table (you already have it in D1)
-export async function writeAudit(env, {
-  tenantId,
-  actorEmail,
-  actorName,
-  action,
-  summary,
-  meta = ""
-}) {
-  if (!env?.DB) return;
-
-  const id = uid();
-  const createdAt = nowIso();
-  await env.DB.prepare(
-    `INSERT INTO audit_log (id, tenantId, actorEmail, actorName, action, summary, meta, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, tenantId, actorEmail, actorName, action, summary, meta, createdAt).run();
+export function nowIso() {
+  return new Date().toISOString();
 }
 
-// Backwards-compatible name used by some files
+export function uid() {
+  // Good enough unique id for D1 rows
+  return crypto.randomUUID();
+}
+
+export async function writeAudit(env, entry) {
+  // audit_log table is already in your D1 list
+  const id = uid();
+  const createdAt = nowIso();
+
+  const {
+    tenantId,
+    actorUserId = "",
+    actorEmail = "",
+    actorName = "",
+    action,
+    entityType = "",
+    entityId = "",
+    summary = "",
+    meta = ""
+  } = entry;
+
+  await env.DB.prepare(
+    `INSERT INTO audit_log (id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
+    .run();
+
+  return { id, createdAt };
+}
+
+// Backwards compat with your older code
 export async function logActivity(env, entry) {
   return writeAudit(env, entry);
 }
-
-// Optional endpoint helper if you use it in an API route
-export const ok = (data) => json(data, { status: 200 });

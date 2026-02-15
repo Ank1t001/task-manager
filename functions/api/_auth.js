@@ -1,70 +1,86 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-const json = (data, init = {}) =>
-  new Response(JSON.stringify(data, null, 2), {
-    headers: { "content-type": "application/json; charset=utf-8", ...(init.headers || {}) },
-    ...init
+export function json(body, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...extraHeaders
+    }
   });
+}
 
-const badRequest = (msg = "Bad Request") => json({ error: msg }, { status: 400 });
-const unauthorized = (msg = "Unauthorized") => json({ error: msg }, { status: 401 });
-const forbidden = (msg = "Forbidden") => json({ error: msg }, { status: 403 });
+export function badRequest(message = "Bad Request") {
+  return json({ error: message }, 400);
+}
+export function unauthorized(message = "Unauthorized") {
+  return json({ error: message }, 401, { "www-authenticate": "Bearer" });
+}
+export function forbidden(message = "Forbidden") {
+  return json({ error: message }, 403);
+}
 
-const getBearer = (req) => {
-  const h = req.headers.get("Authorization") || "";
+function getBearer(request) {
+  const h = request.headers.get("authorization") || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
-};
+}
 
-let jwksCache = null;
-const getJWKS = (domain) => {
-  if (!jwksCache) {
-    const url = new URL(`https://${domain}/.well-known/jwks.json`);
-    jwksCache = createRemoteJWKSet(url);
-  }
-  return jwksCache;
-};
+async function fetchUserInfo(env, token) {
+  // Auth0 userinfo endpoint
+  const issuer = env.AUTH0_ISSUER || `https://${env.AUTH0_DOMAIN}/`;
+  const url = issuer.replace(/\/+$/, "/") + "userinfo";
 
-const verifyAuth0 = async (req, env) => {
-  const token = getBearer(req);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function getUser(request, env) {
+  const token = getBearer(request);
   if (!token) return null;
 
   const domain = env.AUTH0_DOMAIN;
-  const audience = env.AUTH0_AUDIENCE;
   const issuer = env.AUTH0_ISSUER || `https://${domain}/`;
+  const audience = env.AUTH0_AUDIENCE;
 
-  const { payload } = await jwtVerify(token, getJWKS(domain), {
-    issuer,
+  if (!domain || !audience) return null;
+
+  const jwks = createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`));
+
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: issuer.replace(/\/+$/, "/"),
     audience
   });
 
-  // Normalize user fields
-  const email = payload.email || payload["https://email"] || "";
-  const name =
-    payload.name ||
-    payload.nickname ||
-    (email ? email.split("@")[0] : "User");
+  // Try to enrich from userinfo (email/name usually not in access token for custom API)
+  const ui = await fetchUserInfo(env, token);
+
+  const userId = payload.sub;
+  const email = ui?.email || payload.email || "";
+  const name = ui?.name || payload.name || email || userId;
 
   return {
-    sub: payload.sub,
+    userId,
     email,
     name,
-    raw: payload
+    claims: payload
   };
-};
+}
 
-export async function getUser(req, env) {
+export async function requireAuth(request, env) {
   try {
-    return await verifyAuth0(req, env);
-  } catch {
-    return null;
+    const token = getBearer(request);
+    if (!token) return { ok: false, status: 401, body: { error: "Unauthorized" } };
+
+    const user = await getUser(request, env);
+    if (!user?.userId) return { ok: false, status: 401, body: { error: "Unauthorized" } };
+
+    return { ok: true, status: 200, user };
+  } catch (e) {
+    return { ok: false, status: 401, body: { error: "Unauthorized" } };
   }
 }
-
-export async function requireAuth(req, env) {
-  const user = await getUser(req, env);
-  if (!user) return { user: null, res: unauthorized() };
-  return { user, res: null };
-}
-
-export { json, badRequest, unauthorized, forbidden };
