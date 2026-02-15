@@ -1,5 +1,6 @@
 // src/App.jsx
 import { useEffect, useMemo, useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import MiniDashboard from "./components/MiniDashboard";
 import TaskTable from "./components/TaskTable";
 import TaskForm from "./components/TaskForm";
@@ -11,168 +12,59 @@ import ProjectView from "./components/ProjectView";
 const ADMIN_EMAIL = "ankit@digijabber.com";
 const BUILD_VERSION = "v13.0-crm-projects";
 
-const TEAM_MAP = {
-  "ankit@digijabber.com": "Ankit",
-  "ankit@equiton.com": "Ankit",
-  "sheel@equiton.com": "Sheel",
-  "sheelp@equiton.com": "Sheel",
-  "aditi@equiton.com": "Aditi",
-  "jacob@equiton.com": "Jacob",
-  "vanessa@equiton.com": "Vanessa",
-  "mandeep@equiton.com": "Mandeep",
-};
+// Auth0
+// NOTE: main.jsx must wrap <App /> with <Auth0Provider ... />
 
-const normalizeEmail = (v = "") => String(v).trim().toLowerCase();
+const FIXED_STAGES = [
+  "Brief/Kickoff",
+  "Research/Strategy",
+  "Creative/Concept",
+  "Production",
+  "Internal Review",
+  "Compliance Review",
+  "Revisions",
+  "Approval",
+  "Launch/Execution",
+];
 
-function statusKey(status = "") {
-  return String(status).trim().toLowerCase().replace(/[\s-]+/g, "");
-}
-
-function normalizeStatusForUI(status) {
-  const s = statusKey(status);
-  if (s === "blocked") return "Blocked";
-  if (s === "inprogress") return "In Progress";
-  if (s === "todo") return "To Do";
-  if (s === "done") return "Done";
-  return status || "To Do";
-}
-
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function dueDateAsDate(dueDate) {
-  if (!dueDate) return null;
-  const d = new Date(`${dueDate}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function isPastDue(task) {
-  const due = dueDateAsDate(task?.dueDate);
-  if (!due) return false;
-  return due < startOfToday();
-}
-
-function isOverdueBucket(task) {
-  const s = statusKey(task?.status);
-  const active = s === "todo" || s === "inprogress" || s === "blocked";
-  return active && isPastDue(task);
-}
-
-// Dashboard counts: Total, Overdue, In Progress, Done
-function computeDashboardCounts(taskList) {
-  const total = taskList.length;
-  let overdue = 0;
-  let inProgress = 0;
-  let done = 0;
-
-  for (const t of taskList) {
-    const s = statusKey(t?.status);
-
-    if (isOverdueBucket(t)) {
-      overdue++;
-      continue;
-    }
-    if (s === "done") {
-      done++;
-      continue;
-    }
-    if (s === "inprogress" || s === "blocked") inProgress++;
-  }
-
-  return { total, overdue, inProgress, done };
-}
-
-function dbRowToUiTask(row) {
-  return {
-    id: row.id,
-    taskName: row.taskName || "",
-    description: row.description || "",
-    owner: row.owner || "Ankit",
-    ownerEmail: row.ownerEmail || "",
-    section: row.type || "Other", // UI label: Type
-    priority: row.priority || "Medium",
-    status: normalizeStatusForUI(row.status),
-    dueDate: row.dueDate || "",
-    externalStakeholders: row.externalStakeholders || "",
-    sortOrder: row.sortOrder ?? 0,
-    createdAt: row.createdAt || "",
-    updatedAt: row.updatedAt || "",
-    projectName: row.projectName || "",
-    stage: row.stage || "",
-    completedAt: row.completedAt || "",
-  };
-}
-
-function uiTaskToDbPayload(task) {
-  return {
-    id: task.id,
-    taskName: task.taskName || "",
-    description: task.description || "",
-    owner: task.owner || "",
-    ownerEmail: task.ownerEmail || "",
-    type: task.section || "Other",
-    priority: task.priority || "Medium",
-    status: normalizeStatusForUI(task.status),
-    dueDate: task.dueDate || "",
-    externalStakeholders: task.externalStakeholders || "",
-    sortOrder: task.sortOrder ?? 0,
-    projectName: task.projectName || "",
-    stage: task.stage || "",
-    completedAt: task.completedAt || "",
-  };
-}
-
-// Due date filter range check (YYYY-MM-DD)
-function inDateRange(dueDate, from, to) {
-  if (!from && !to) return true;
-  if (!dueDate) return false;
-  if (from && dueDate < from) return false;
-  if (to && dueDate > to) return false;
-  return true;
-}
+const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 
 function downloadCSV(filename, rows) {
+  const escape = (s) => {
+    const str = String(s ?? "");
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
   const headers = [
-    "Project",
-    "Stage",
     "Task Name",
-    "Task Description",
+    "Description",
     "Owner",
     "Owner Email",
     "Type",
     "Priority",
-    "Due Date",
     "Status",
-    "External Stakeholders",
-    "Sort Order",
+    "Due Date",
+    "Stakeholders",
+    "Project",
+    "Stage",
     "Created At",
     "Updated At",
   ];
-
-  const escape = (v) => {
-    const s = String(v ?? "");
-    return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
   const lines = [
     headers.join(","),
     ...rows.map((t) =>
       [
-        t.projectName,
-        t.stage,
         t.taskName,
         t.description,
         t.owner,
         t.ownerEmail,
         t.section,
         t.priority,
-        t.dueDate,
         t.status,
+        t.dueDate,
         t.externalStakeholders,
-        t.sortOrder ?? 0,
+        t.projectName,
+        t.stage,
         t.createdAt,
         t.updatedAt,
       ]
@@ -180,162 +72,153 @@ function downloadCSV(filename, rows) {
         .join(",")
     ),
   ];
-
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
-  document.body.appendChild(a);
   a.click();
-  a.remove();
   URL.revokeObjectURL(url);
 }
 
-// helpers: YYYY-MM-DD
-function fmt(d) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+// DB row -> UI task
+function dbRowToUiTask(r) {
+  return {
+    id: r.id,
+    taskName: r.taskName ?? r.taskname ?? r.task_name ?? r.task ?? "",
+    description: r.description ?? "",
+    owner: r.owner ?? "",
+    ownerEmail: r.ownerEmail ?? r.owneremail ?? "",
+    section: r.type ?? r.section ?? "Other",
+    priority: r.priority ?? "Medium",
+    status: r.status ?? "To Do",
+    dueDate: r.dueDate ?? "",
+    externalStakeholders: r.externalStakeholders ?? "",
+    projectName: r.projectName ?? "",
+    stage: r.stage ?? "",
+    createdAt: r.createdAt ?? "",
+    updatedAt: r.updatedAt ?? "",
+    sortOrder: typeof r.sortOrder === "number" ? r.sortOrder : r.sortOrder ? Number(r.sortOrder) : 0,
+  };
 }
 
-function startOfWeekMonday(d) {
-  const x = new Date(d);
-  const day = x.getDay(); // 0 Sun ... 6 Sat
-  const diff = (day === 0 ? -6 : 1) - day; // Monday start
-  x.setDate(x.getDate() + diff);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfWeekSunday(d) {
-  const s = startOfWeekMonday(d);
-  const e = new Date(s);
-  e.setDate(e.getDate() + 6);
-  e.setHours(0, 0, 0, 0);
-  return e;
-}
-
-function startOfMonth(d) {
-  const x = new Date(d.getFullYear(), d.getMonth(), 1);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfMonth(d) {
-  const x = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function ownerEmailFromOwner(owner) {
-  const o = String(owner || "").trim().toLowerCase();
-  if (!o) return "";
-  if (o === "ankit") return "ankit@digijabber.com";
-  if (o === "sheel") return "sheelp@equiton.com";
-  if (o === "aditi") return "aditi@equiton.com";
-  if (o === "jacob") return "jacob@equiton.com";
-  if (o === "vanessa") return "vanessa@equiton.com";
-  if (o === "mandeep") return "mandeep@equiton.com";
-  return "";
+// UI task -> API payload
+function uiTaskToDbPayload(t) {
+  return {
+    id: t.id,
+    taskName: t.taskName,
+    description: t.description || "",
+    owner: t.owner || "",
+    ownerEmail: t.ownerEmail || "",
+    type: t.section || "Other",
+    priority: t.priority || "Medium",
+    status: t.status || "To Do",
+    dueDate: t.dueDate || "",
+    externalStakeholders: t.externalStakeholders || "",
+    projectName: t.projectName || "",
+    stage: t.stage || "",
+    sortOrder: typeof t.sortOrder === "number" ? t.sortOrder : 0,
+  };
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(localStorage.getItem("dtt_theme") || "light");
-  const [tab, setTab] = useState("dashboard");
+  const {
+    isAuthenticated,
+    isLoading,
+    user,
+    loginWithRedirect,
+    logout,
+    getAccessTokenSilently,
+  } = useAuth0();
 
-  const [tasks, setTasks] = useState([]);
-  const [loadingTasks, setLoadingTasks] = useState(true);
-  const [tasksError, setTasksError] = useState("");
+  const getToken = async () => {
+    if (!isAuthenticated) return "";
+    return await getAccessTokenSilently().catch(() => "");
+  };
 
-  const [showModal, setShowModal] = useState(false);
-  const [editingTask, setEditingTask] = useState(null);
+  const apiFetch = async (url, opts = {}) => {
+    const token = await getToken();
+    const headers = { ...(opts.headers || {}) };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return fetch(url, { ...opts, headers });
+  };
 
+  // Auth / user
+  const [isAuthed, setIsAuthed] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("Member");
-  const [isAuthed, setIsAuthed] = useState(false);
 
-  // Global filters (Tasks tab)
+  // UI state
+  const [darkMode, setDarkMode] = useState(false);
+  const [tab, setTab] = useState("dashboard");
+
+  // Tasks
+  const [tasks, setTasks] = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [tasksError, setTasksError] = useState("");
+
+  // Modal
+  const [showModal, setShowModal] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+
+  // Filters
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  // Date Range Filter (applies to Dashboard tiles + Tasks + Kanban + Projects view filters)
-  const [dueFrom, setDueFrom] = useState("");
-  const [dueTo, setDueTo] = useState("");
-
-  // Collapsible Date Filter
-  const [dateFilterOpen, setDateFilterOpen] = useState(true);
-
-  // Projects UI
-  const [activeProject, setActiveProject] = useState(null); // full project object from /api/projects
-
-  // Create modal prefills (for creating task inside a project/stage)
-  const [createPrefill, setCreatePrefill] = useState(null);
-
-  // Stage owner cache (for UI permissions)
-  // { [projectName]: { [stageName]: stageOwnerEmail } }
+  // Projects
+  const [selectedProject, setSelectedProject] = useState(null);
   const [stageOwnerCache, setStageOwnerCache] = useState({});
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("dtt_theme", theme);
-  }, [theme]);
+  // --- Auth0: Login/Logout handlers ---
+  function handleLogin() {
+    loginWithRedirect();
+  }
+  function handleLogout() {
+    logout({ logoutParams: { returnTo: window.location.origin } });
+  }
 
-  // Identity
-  useEffect(() => {
-    let alive = true;
+  function handleExportCSV() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`tasks_${stamp}.csv`, tableFilteredTasks);
+  }
 
-    async function loadMe() {
-      try {
-        const res = await fetch("/api/me", { cache: "no-store" });
-
-        if (res.status === 401) {
-          if (!alive) return;
-          setIsAuthed(false);
-          setUserEmail("");
-          setUserName("");
-          setRole("Member");
-          return;
-        }
-
-        const data = await res.json();
-        const email = normalizeEmail(data?.email);
-
-        if (!alive) return;
-
-        setIsAuthed(true);
-        setUserEmail(email);
-
-        const isAdminNow = email === normalizeEmail(ADMIN_EMAIL);
-        setRole(isAdminNow ? "Admin" : "Member");
-
-        const mapped = TEAM_MAP[email];
-        const fallback = email ? email.split("@")[0] : "Member";
-        setUserName(mapped || fallback);
-      } catch {
-        if (!alive) return;
+  // Load /api/me (Auth0 JWT)
+  async function loadMe() {
+    try {
+      const res = await apiFetch("/api/me", { cache: "no-store" });
+      if (res.status === 401) {
         setIsAuthed(false);
         setUserEmail("");
         setUserName("");
         setRole("Member");
+        return;
       }
+      const data = await res.json();
+      const email = normalizeEmail(data?.email || user?.email || "");
+      const name = String(data?.name || user?.name || email || "Unknown");
+      setIsAuthed(true);
+      setUserEmail(email);
+      setUserName(name);
+      setRole(email === normalizeEmail(ADMIN_EMAIL) ? "Admin" : "Member");
+    } catch {
+      setIsAuthed(false);
+      setUserEmail("");
+      setUserName("");
+      setRole("Member");
     }
-
-    loadMe();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  }
 
   async function loadTasks() {
     try {
       setLoadingTasks(true);
       setTasksError("");
 
-      const res = await fetch("/api/tasks", { cache: "no-store" });
+      const res = await apiFetch("/api/tasks", { cache: "no-store" });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         throw new Error(`Failed to load tasks (${res.status}) ${txt}`);
@@ -367,7 +250,10 @@ export default function App() {
       for (const projectName of projectNames) {
         if (nextCache[projectName]) continue; // already cached
 
-        const res = await fetch(`/api/stages?projectName=${encodeURIComponent(projectName)}`, { cache: "no-store" });
+        const res = await apiFetch(
+          `/api/stages?projectName=${encodeURIComponent(projectName)}`,
+          { cache: "no-store" }
+        );
         if (!res.ok) continue;
         const data = await res.json();
         const stages = Array.isArray(data?.stages) ? data.stages : [];
@@ -383,17 +269,36 @@ export default function App() {
 
       setStageOwnerCache(nextCache);
     } catch {
-      // best-effort cache; ignore
+      // ignore
     }
   }
 
+  // Only load after Auth0 login
   useEffect(() => {
-    loadTasks();
-  }, []);
+    if (!isAuthenticated) {
+      setIsAuthed(false);
+      setUserEmail("");
+      setUserName("");
+      setRole("Member");
+      setTasks([]);
+      setTasksError("");
+      return;
+    }
+    void loadMe();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setTasks([]);
+      setTasksError("");
+      return;
+    }
+    void loadTasks();
+  }, [isAuthenticated]);
 
   async function createTask(uiTask) {
     const payload = uiTaskToDbPayload(uiTask);
-    const res = await fetch("/api/tasks", {
+    const res = await apiFetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -406,7 +311,7 @@ export default function App() {
 
   async function updateTask(uiTask) {
     const payload = uiTaskToDbPayload(uiTask);
-    const res = await fetch("/api/tasks", {
+    const res = await apiFetch("/api/tasks", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -418,7 +323,9 @@ export default function App() {
   }
 
   async function deleteTask(id) {
-    const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       throw new Error(`Delete failed (${res.status}) ${t}`);
@@ -438,416 +345,225 @@ export default function App() {
   // Base filtered tasks (global)
   const baseFilteredTasks = useMemo(() => {
     const q = query.trim().toLowerCase();
-
     return tasks.filter((t) => {
-      const matchesQuery =
-        !q ||
-        (t.taskName || "").toLowerCase().includes(q) ||
-        (t.description || "").toLowerCase().includes(q) ||
-        (t.section || "").toLowerCase().includes(q) ||
-        (t.externalStakeholders || "").toLowerCase().includes(q) ||
-        (t.projectName || "").toLowerCase().includes(q) ||
-        (t.stage || "").toLowerCase().includes(q);
+      if (q) {
+        const hay = [
+          t.taskName,
+          t.description,
+          t.owner,
+          t.ownerEmail,
+          t.section,
+          t.status,
+          t.priority,
+          t.externalStakeholders,
+          t.projectName,
+          t.stage,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (statusFilter !== "All" && t.status !== statusFilter) return false;
+      if (ownerFilter !== "All" && t.owner !== ownerFilter) return false;
+      if (typeFilter !== "All" && t.section !== typeFilter) return false;
 
-      const matchesStatus = statusFilter === "All" || t.status === statusFilter;
-      const matchesDate = inDateRange(t.dueDate, dueFrom, dueTo);
+      if (dateFrom && (!t.dueDate || t.dueDate < dateFrom)) return false;
+      if (dateTo && (!t.dueDate || t.dueDate > dateTo)) return false;
 
-      return matchesQuery && matchesStatus && matchesDate;
+      return true;
     });
-  }, [tasks, query, statusFilter, dueFrom, dueTo]);
+  }, [tasks, query, statusFilter, ownerFilter, typeFilter, dateFrom, dateTo]);
 
-  // Table/Kanban apply owner filter
-  const tableFilteredTasks = useMemo(() => {
-    if (ownerFilter === "All") return baseFilteredTasks;
-    return baseFilteredTasks.filter((t) => t.owner === ownerFilter);
-  }, [baseFilteredTasks, ownerFilter]);
+  const tableFilteredTasks = baseFilteredTasks;
 
-  // Dashboard counts (Overall Team)
-  const teamCounts = useMemo(() => computeDashboardCounts(baseFilteredTasks), [baseFilteredTasks]);
-
-  // My tasks section owner selection
-  const selectedOwner = useMemo(() => {
-    if (ownerFilter !== "All") return ownerFilter;
-    return userName || "";
-  }, [ownerFilter, userName]);
-
-  const selectedOwnerTasks = useMemo(() => {
-    const name = (selectedOwner || "").trim();
-    if (!name) return [];
-    return baseFilteredTasks.filter((t) => (t.owner || "").trim() === name);
-  }, [baseFilteredTasks, selectedOwner]);
-
-  const selectedOwnerCounts = useMemo(
-    () => computeDashboardCounts(selectedOwnerTasks),
-    [selectedOwnerTasks]
-  );
-
-  // Permissions
-  const isAdminNow = normalizeEmail(userEmail) === normalizeEmail(ADMIN_EMAIL);
-  const canEditAny = isAdminNow;
-
-  const canEditTask = (task) => {
-    if (isAdminNow) return true;
-    const me = normalizeEmail(userEmail);
-    const ownerEmail = normalizeEmail(task?.ownerEmail || "");
-    if (me && ownerEmail && me === ownerEmail) return true;
-
-    // Stage owner can edit tasks in that stage (best-effort UI check; API is the source of truth)
-    const projectName = String(task?.projectName || "").trim();
-    const stageName = String(task?.stage || "").trim();
-    const stageOwnerEmail = normalizeEmail(stageOwnerCache?.[projectName]?.[stageName] || "");
-    return !!(me && stageOwnerEmail && me === stageOwnerEmail);
+  const canEditAny = role === "Admin";
+  const canEditTask = (t) => {
+    if (canEditAny) return true;
+    const my = normalizeEmail(userEmail);
+    return my && normalizeEmail(t.ownerEmail) === my;
   };
 
-  // Auth handlers
-  function handleLogin() {
-    const returnTo = window.location.origin + "/";
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(returnTo)}`;
-  }
-  function handleLogout() {
-    const returnTo = window.location.origin + "/";
-    window.location.href = `/api/logout?returnTo=${encodeURIComponent(returnTo)}`;
-  }
-
-  function handleExportCSV() {
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadCSV(`tasks_${stamp}.csv`, tableFilteredTasks);
-  }
-
-  // Quick date buttons
-  function setThisWeek() {
-    const now = new Date();
-    setDueFrom(fmt(startOfWeekMonday(now)));
-    setDueTo(fmt(endOfWeekSunday(now)));
-  }
-
-  function setThisMonth() {
-    const now = new Date();
-    setDueFrom(fmt(startOfMonth(now)));
-    setDueTo(fmt(endOfMonth(now)));
-  }
-
-  function clearDates() {
-    setDueFrom("");
-    setDueTo("");
-  }
+  const headerSignedIn = isAuthenticated
+    ? `${userEmail || user?.email || "Unknown"} (${role}: ${userName || user?.name || "Unknown"})`
+    : "Not signed in";
 
   return (
-    <div className="dtt-page">
+    <div className={darkMode ? "dtt dtt-dark" : "dtt"}>
       <div className="dtt-shell">
-        {/* Header */}
-        <div className="dtt-card">
-          <div className="dtt-titleRow" style={{ justifyContent: "space-between" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="dtt-dot" />
-                <div className="dtt-h1">Digital Team Task Tracker</div>
-              </div>
-
-              <div className="dtt-muted" style={{ marginTop: 6 }}>
-                Signed in: {userEmail || "Unknown"} ({role}
-                {userName ? `: ${userName}` : ""}) • {BUILD_VERSION}
-              </div>
+        <header className="dtt-header">
+          <div>
+            <div className="dtt-title">Digital Team Task Tracker</div>
+            <div className="dtt-subtitle">
+              Signed in: {headerSignedIn} • {BUILD_VERSION}
             </div>
+          </div>
 
-            <div className="dtt-actions">
-              <button
-                className="dtt-btn"
-                onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-              >
-                {theme === "light" ? "Dark Mode" : "Light Mode"}
+          <div className="dtt-header-actions">
+            <button className="dtt-btn" onClick={() => setDarkMode((v) => !v)}>
+              {darkMode ? "Light Mode" : "Dark Mode"}
+            </button>
+
+            {!isAuthenticated ? (
+              <button className="dtt-btn dtt-btn-primary" onClick={handleLogin} disabled={isLoading}>
+                Login
               </button>
+            ) : (
+              <button className="dtt-btn" onClick={handleLogout}>
+                Logout
+              </button>
+            )}
 
-              {!isAuthed ? (
-                <button className="dtt-btnPrimary" onClick={handleLogin}>
-                  Login
-                </button>
-              ) : (
-                <>
-                  <button className="dtt-btn" onClick={handleLogout}>
-                    Logout
-                  </button>
-                  <button className="dtt-btn" onClick={handleExportCSV}>
-                    Export CSV
-                  </button>
-                </>
-              )}
+            <button className="dtt-btn" onClick={handleExportCSV} disabled={!isAuthenticated}>
+              Export CSV
+            </button>
 
-              <span className="dtt-pill">
-                {loadingTasks ? "Loading…" : `${tasks.length} tasks`}
-              </span>
-            </div>
+            <div className="dtt-pill">{tableFilteredTasks.length} tasks</div>
           </div>
-        </div>
+        </header>
 
-        {/* Tabs */}
-        <div className="dtt-tabsRow">
-          <div className="dtt-tabs">
-            <button
-              className={`dtt-tab ${tab === "dashboard" ? "dtt-tabActive" : ""}`}
-              onClick={() => {
-                setTab("dashboard");
-                setActiveProject("");
-              }}
-            >
-              Dashboard
-            </button>
-
-            <button
-              className={`dtt-tab ${tab === "tasks" ? "dtt-tabActive" : ""}`}
-              onClick={() => {
-                setTab("tasks");
-                setActiveProject("");
-              }}
-            >
-              Tasks
-            </button>
-
-            <button
-              className={`dtt-tab ${tab === "kanban" ? "dtt-tabActive" : ""}`}
-              onClick={() => {
-                setTab("kanban");
-                setActiveProject("");
-              }}
-            >
-              Kanban
-            </button>
-
-            <button
-              className={`dtt-tab ${tab === "projects" ? "dtt-tabActive" : ""}`}
-              onClick={() => setTab("projects")}
-            >
-              Projects
-            </button>
+        {tasksError ? (
+          <div className="dtt-error">
+            Tasks API Error: {tasksError}
           </div>
+        ) : null}
+
+        <div className="dtt-tabs">
+          <button className={tab === "dashboard" ? "dtt-tab active" : "dtt-tab"} onClick={() => setTab("dashboard")}>
+            Dashboard
+          </button>
+          <button className={tab === "tasks" ? "dtt-tab active" : "dtt-tab"} onClick={() => setTab("tasks")}>
+            Tasks
+          </button>
+          <button className={tab === "kanban" ? "dtt-tab active" : "dtt-tab"} onClick={() => setTab("kanban")}>
+            Kanban
+          </button>
+          <button className={tab === "projects" ? "dtt-tab active" : "dtt-tab"} onClick={() => setTab("projects")}>
+            Projects
+          </button>
+
+          <div className="dtt-tabs-spacer" />
 
           <button
-            className="dtt-btnPrimary"
+            className="dtt-btn dtt-btn-primary"
             onClick={() => {
               setEditingTask(null);
               setShowModal(true);
             }}
+            disabled={!isAuthenticated}
           >
             + New Task
           </button>
         </div>
 
-        {/* Content */}
-        <div className="dtt-card">
-          {tasksError ? (
-            <div className="dtt-muted">
-              <b>Tasks API Error:</b> {tasksError}
-            </div>
-          ) : null}
+        {tab === "dashboard" && (
+          <MiniDashboard
+            tasks={tableFilteredTasks}
+            currentOwner={userName || "Unknown"}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            setDateFrom={setDateFrom}
+            setDateTo={setDateTo}
+          />
+        )}
 
-          {/* Date Range Filter (applies to dashboard tiles + tasks + kanban + projects view filters) */}
-          <div className="dtt-card" style={{ padding: 14, marginBottom: 14 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontWeight: 1000, fontSize: 16 }}>Date Range Filter</div>
+        {tab === "tasks" && (
+          <TaskTable
+            tasks={tableFilteredTasks}
+            loading={loadingTasks}
+            query={query}
+            setQuery={setQuery}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            ownerFilter={ownerFilter}
+            setOwnerFilter={setOwnerFilter}
+            ownerOptions={ownerOptions}
+            typeFilter={typeFilter}
+            setTypeFilter={setTypeFilter}
+            typeOptions={typeOptions}
+            dateFrom={dateFrom}
+            setDateFrom={setDateFrom}
+            dateTo={dateTo}
+            setDateTo={setDateTo}
+            onEdit={(t) => {
+              setEditingTask(t);
+              setShowModal(true);
+            }}
+            onDelete={async (id) => {
+              try {
+                await deleteTask(id);
+                await loadTasks();
+              } catch (e) {
+                setTasksError(e?.message || "Delete failed");
+              }
+            }}
+            canEditTask={canEditTask}
+            canEditAny={canEditAny}
+          />
+        )}
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button className="dtt-btn" onClick={() => setDateFilterOpen((v) => !v)}>
-                  {dateFilterOpen ? "Hide" : "Show"}
-                </button>
-
-                <button className="dtt-btn" onClick={setThisWeek}>
-                  This Week
-                </button>
-                <button className="dtt-btn" onClick={setThisMonth}>
-                  This Month
-                </button>
-
-                <button className="dtt-btn" onClick={clearDates}>
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            {dateFilterOpen ? (
-              <div
-                style={{
-                  marginTop: 12,
-                  display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                }}
-              >
-                <input
-                  className="dtt-input"
-                  type="date"
-                  value={dueFrom}
-                  onChange={(e) => setDueFrom(e.target.value)}
-                  style={{ width: 170 }}
-                />
-                <input
-                  className="dtt-input"
-                  type="date"
-                  value={dueTo}
-                  onChange={(e) => setDueTo(e.target.value)}
-                  style={{ width: 170 }}
-                />
-              </div>
-            ) : null}
-          </div>
-
-          {tab === "dashboard" && (
-            <div style={{ display: "grid", gap: 14 }}>
-              <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 1000, fontSize: 16 }}>Overall Team</div>
-                  <div className="dtt-muted">{baseFilteredTasks.length} tasks</div>
-                </div>
-              </div>
-
-              <MiniDashboard counts={teamCounts} theme={theme} />
-
-              <div className="dtt-card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 1000, fontSize: 16 }}>My Tasks</div>
-                  <div className="dtt-muted">
-                    Owner: <b>{selectedOwner || "Unknown"}</b> • {selectedOwnerTasks.length} tasks
-                  </div>
-                </div>
-              </div>
-
-              <MiniDashboard counts={selectedOwnerCounts} theme={theme} />
-            </div>
-          )}
-
-          {tab === "tasks" && (
-            <>
-              {loadingTasks ? (
-                <div className="dtt-muted">Loading tasks…</div>
-              ) : (
-                <TaskTable
-                  tasks={tableFilteredTasks}
-                  allOwnerOptions={ownerOptions}
-                  allTypeOptions={typeOptions}
-                  query={query}
-                  setQuery={setQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  ownerFilter={ownerFilter}
-                  setOwnerFilter={setOwnerFilter}
-                  onDelete={async (id) => {
-                    await deleteTask(id);
-                    await loadTasks();
-                  }}
-                  onEdit={(task) => {
-                    setEditingTask(task);
-                    setShowModal(true);
-                  }}
-                  canEditAny={canEditAny}
-                  canEditTask={canEditTask}
-                />
-              )}
-            </>
-          )}
-
-          {tab === "kanban" && (
-            <>
-              {loadingTasks ? (
-                <div className="dtt-muted">Loading tasks…</div>
-              ) : (
-                <KanbanBoard
-                  tasks={tableFilteredTasks}
-                  onUpdateTask={async (t) => {
+        {tab === "kanban" && (
+          <>
+            {loadingTasks ? (
+              <div className="dtt-muted">Loading tasks…</div>
+            ) : (
+              <KanbanBoard
+                tasks={tableFilteredTasks}
+                onUpdateTask={async (t) => {
+                  try {
                     await updateTask(t);
                     await loadTasks();
-                  }}
-                  canEditAny={canEditAny}
-                  canEditTask={canEditTask}
-                />
-              )}
-            </>
-          )}
+                  } catch (e) {
+                    setTasksError(e?.message || "Update failed");
+                  }
+                }}
+                canEditAny={canEditAny}
+                canEditTask={canEditTask}
+              />
+            )}
+          </>
+        )}
 
-          {tab === "projects" && (
-            <>
-              {!activeProject ? (
-                <Projects
-                  meEmail={userEmail}
-                  meName={userName}
-                  isAdmin={canEditAny}
-                  onOpenProject={(p) => setActiveProject(p)}
-                />
-              ) : (
-                <ProjectView
-                  projectName={activeProject.name}
-                  projectOwnerName={activeProject.ownerName}
-                  projectOwnerEmail={activeProject.ownerEmail}
-                  projectArchived={activeProject.archived}
-                  meEmail={userEmail}
-                  meName={userName}
-                  userIsAdmin={canEditAny}
-                  onBack={() => setActiveProject(null)}
-                  onProjectChanged={() => {
-                    setActiveProject(null);
-                    void loadTasks();
-                  }}
-                  onEditTask={(t) => {
-                    setCreatePrefill(null);
-                    setEditingTask(dbRowToUiTask(t));
-                    setShowModal(true);
-                  }}
-                  onCreateTaskInStage={({ projectName, stage }) => {
-                    setEditingTask(null);
-                    setCreatePrefill({ projectName, stage });
-                    setShowModal(true);
-                  }}
-                  onOpenTaskById={(taskId) => {
-                    const found = tasks.find((x) => x.id === taskId);
-                    if (!found) return;
-                    setCreatePrefill(null);
-                    setEditingTask(found);
-                    setShowModal(true);
-                  }}
-                />
-              )}
-            </>
-          )}
-        </div>
+        {tab === "projects" && (
+          <>
+            {!selectedProject ? (
+              <Projects
+                onOpenProject={(p) => setSelectedProject(p)}
+                canEditAny={canEditAny}
+              />
+            ) : (
+              <ProjectView
+                project={selectedProject}
+                fixedStages={FIXED_STAGES}
+                onBack={() => setSelectedProject(null)}
+                canEditAny={canEditAny}
+              />
+            )}
+          </>
+        )}
 
-        {/* Modal: Create / Edit */}
-        <Modal
-          open={showModal}
-          title={editingTask ? "Edit task" : "Create a new task"}
-          subtitle={editingTask ? "Update details and save." : "Fill details and save."}
-          onClose={() => {
-            setShowModal(false);
-            setEditingTask(null);
-          }}
-        >
+        <Modal open={showModal} onClose={() => setShowModal(false)}>
           <TaskForm
             mode={editingTask ? "edit" : "create"}
-            initialTask={editingTask || createPrefill}
-            onSubmit={async (values) => {
-              if (editingTask) {
-                await updateTask({ ...editingTask, ...values });
-              } else {
-                const ownerEmail = ownerEmailFromOwner(values.owner) || "";
-                await createTask({ ...values, ownerEmail, sortOrder: 0 });
+            fixedStages={FIXED_STAGES}
+            task={editingTask}
+            onCancel={() => setShowModal(false)}
+            onSave={async (t) => {
+              try {
+                if (editingTask) {
+                  await updateTask(t);
+                } else {
+                  await createTask(t);
+                }
+                setShowModal(false);
+                await loadTasks();
+              } catch (e) {
+                setTasksError(e?.message || "Save failed");
               }
-
-              setShowModal(false);
-              setEditingTask(null);
-              setCreatePrefill(null);
-              await loadTasks();
             }}
-            onCancel={() => {
-              setShowModal(false);
-              setEditingTask(null);
-              setCreatePrefill(null);
-            }}
+            canEditAny={canEditAny}
+            canEditTask={canEditTask}
+            currentUserName={userName || "Unknown"}
+            currentUserEmail={userEmail || ""}
           />
         </Modal>
       </div>
