@@ -1,69 +1,62 @@
 import { requireAuth, json, badRequest, unauthorized, forbidden } from "./_auth";
-import { nowIso, uid, writeAudit } from "./_activity";
+import { logActivity } from "./_activity";
 
-async function getTenantForUser(env, userId) {
-  const row = await env.DB.prepare(
-    `SELECT tenantId, role FROM tenant_members WHERE userId = ? LIMIT 1`
-  )
-    .bind(userId)
-    .first();
-
-  return row || null;
+function nowIso() {
+  return new Date().toISOString();
 }
 
-function canEditAny(role) {
-  return role === "owner" || role === "admin";
+function uid() {
+  return crypto.randomUUID();
 }
 
-export const onRequestGet = async ({ request, env }) => {
+export async function onRequestGet({ request, env }) {
   const auth = await requireAuth(request, env);
-  if (!auth.ok) return json(auth.body, auth.status);
+  if (!auth.ok) return auth.res;
 
-  const tm = await getTenantForUser(env, auth.user.userId);
-  if (!tm?.tenantId) return unauthorized("No tenant membership. Call /api/tenants/bootstrap first.");
+  // Until tenant bootstrap is done, don’t allow data reads
+  if (!auth.tenantId) return unauthorized("No tenant selected. Run tenant bootstrap.");
 
   const rows = await env.DB.prepare(
-    `SELECT * FROM tasks WHERE tenantId = ? ORDER BY status ASC, sortOrder ASC, updatedAt DESC`
+    "SELECT * FROM tasks WHERE tenantId = ? ORDER BY sortOrder ASC, updatedAt DESC"
   )
-    .bind(tm.tenantId)
+    .bind(auth.tenantId)
     .all();
 
   return json(rows.results || []);
-};
+}
 
-export const onRequestPost = async ({ request, env }) => {
+export async function onRequestPost({ request, env }) {
   const auth = await requireAuth(request, env);
-  if (!auth.ok) return json(auth.body, auth.status);
-
-  const tm = await getTenantForUser(env, auth.user.userId);
-  if (!tm?.tenantId) return unauthorized("No tenant membership. Call /api/tenants/bootstrap first.");
+  if (!auth.ok) return auth.res;
+  if (!auth.tenantId) return unauthorized("No tenant selected. Run tenant bootstrap.");
 
   const body = await request.json().catch(() => null);
   if (!body?.taskName) return badRequest("taskName is required");
 
   const t = {
     id: uid(),
-    tenantId: tm.tenantId,
+    tenantId: auth.tenantId,
     taskName: body.taskName,
     description: body.description || "",
-    owner: body.owner || auth.user.name || "",
+    owner: body.owner || auth.user.name,
     ownerEmail: body.ownerEmail || auth.user.email || "",
     type: body.type || "Other",
     priority: body.priority || "Medium",
     status: body.status || "To Do",
     dueDate: body.dueDate || "",
     externalStakeholders: body.externalStakeholders || "",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
     projectName: body.projectName || "",
     stage: body.stage || "",
-    completedAt: "",
+    completedAt: body.completedAt || "",
     sortOrder: Number.isFinite(body.sortOrder) ? body.sortOrder : 0,
-    createdAt: nowIso(),
-    updatedAt: nowIso()
   };
 
   await env.DB.prepare(
     `INSERT INTO tasks
-     (id, tenantId, taskName, description, owner, ownerEmail, type, priority, status, dueDate, externalStakeholders, createdAt, updatedAt, projectName, stage, completedAt, sortOrder)
+     (id, tenantId, taskName, description, owner, ownerEmail, type, priority, status, dueDate, externalStakeholders,
+      createdAt, updatedAt, projectName, stage, completedAt, sortOrder)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
@@ -87,50 +80,45 @@ export const onRequestPost = async ({ request, env }) => {
     )
     .run();
 
-  await writeAudit(env, {
-    tenantId: tm.tenantId,
-    actorUserId: auth.user.userId,
-    actorEmail: auth.user.email,
+  await logActivity(env, {
+    id: uid(),
+    tenantId: auth.tenantId,
+    actorSub: auth.user.sub,
     actorName: auth.user.name,
-    action: "TASK_CREATED",
-    entityType: "task",
-    entityId: t.id,
-    summary: `Created task: ${t.taskName}`
+    actorEmail: auth.user.email || "",
+    action: "task_created",
+    summary: `Created task: ${t.taskName}`,
+    meta: JSON.stringify({ taskId: t.id }),
+    createdAt: nowIso(),
   });
 
   return json(t, 201);
-};
+}
 
-export const onRequestPut = async ({ request, env }) => {
+export async function onRequestPut({ request, env }) {
   const auth = await requireAuth(request, env);
-  if (!auth.ok) return json(auth.body, auth.status);
+  if (!auth.ok) return auth.res;
+  if (!auth.tenantId) return unauthorized("No tenant selected. Run tenant bootstrap.");
 
-  const tm = await getTenantForUser(env, auth.user.userId);
-  if (!tm?.tenantId) return unauthorized("No tenant membership. Call /api/tenants/bootstrap first.");
+  const body = await request.json().catch(() => null);
+  if (!body?.id) return badRequest("id is required");
 
-  const url = new URL(request.url);
-  const id = url.searchParams.get("id");
-  if (!id) return badRequest("Missing id");
-
+  // Basic permission rule (adjust later):
+  // - admin can edit all
+  // - member can edit only their tasks
   const existing = await env.DB.prepare(
-    `SELECT * FROM tasks WHERE id = ? AND tenantId = ? LIMIT 1`
+    "SELECT * FROM tasks WHERE id = ? AND tenantId = ? LIMIT 1"
   )
-    .bind(id, tm.tenantId)
+    .bind(body.id, auth.tenantId)
     .first();
 
-  if (!existing) return json({ error: "Not found" }, 404);
+  if (!existing) return badRequest("Task not found");
+  const isOwner = (existing.ownerEmail || "").toLowerCase() === (auth.user.email || "").toLowerCase();
+  const canEdit = auth.role === "admin" || isOwner;
+  if (!canEdit) return forbidden("You can only edit your own tasks");
 
-  const role = tm.role || "member";
-  const canEdit =
-    canEditAny(role) || (auth.user.email && existing.ownerEmail && auth.user.email.toLowerCase() === existing.ownerEmail.toLowerCase());
-
-  if (!canEdit) return forbidden("You cannot edit this task");
-
-  const body = await request.json().catch(() => ({}));
   const updatedAt = nowIso();
-
-  const next = {
-    ...existing,
+  const patch = {
     taskName: body.taskName ?? existing.taskName,
     description: body.description ?? existing.description,
     owner: body.owner ?? existing.owner,
@@ -142,99 +130,87 @@ export const onRequestPut = async ({ request, env }) => {
     externalStakeholders: body.externalStakeholders ?? existing.externalStakeholders,
     projectName: body.projectName ?? existing.projectName,
     stage: body.stage ?? existing.stage,
-    sortOrder: Number.isFinite(body.sortOrder) ? body.sortOrder : existing.sortOrder,
     completedAt: body.completedAt ?? existing.completedAt,
-    updatedAt
+    sortOrder: Number.isFinite(body.sortOrder) ? body.sortOrder : existing.sortOrder,
   };
 
   await env.DB.prepare(
     `UPDATE tasks SET
-      taskName=?,
-      description=?,
-      owner=?,
-      ownerEmail=?,
-      type=?,
-      priority=?,
-      status=?,
-      dueDate=?,
-      externalStakeholders=?,
-      projectName=?,
-      stage=?,
-      completedAt=?,
-      sortOrder=?,
-      updatedAt=?
-     WHERE id=? AND tenantId=?`
+      taskName = ?, description = ?, owner = ?, ownerEmail = ?, type = ?, priority = ?, status = ?,
+      dueDate = ?, externalStakeholders = ?, projectName = ?, stage = ?, completedAt = ?, sortOrder = ?, updatedAt = ?
+     WHERE id = ? AND tenantId = ?`
   )
     .bind(
-      next.taskName,
-      next.description,
-      next.owner,
-      next.ownerEmail,
-      next.type,
-      next.priority,
-      next.status,
-      next.dueDate,
-      next.externalStakeholders,
-      next.projectName,
-      next.stage,
-      next.completedAt,
-      next.sortOrder,
-      next.updatedAt,
-      id,
-      tm.tenantId
+      patch.taskName,
+      patch.description,
+      patch.owner,
+      patch.ownerEmail,
+      patch.type,
+      patch.priority,
+      patch.status,
+      patch.dueDate,
+      patch.externalStakeholders,
+      patch.projectName,
+      patch.stage,
+      patch.completedAt,
+      patch.sortOrder,
+      updatedAt,
+      body.id,
+      auth.tenantId
     )
     .run();
 
-  await writeAudit(env, {
-    tenantId: tm.tenantId,
-    actorUserId: auth.user.userId,
-    actorEmail: auth.user.email,
+  await logActivity(env, {
+    id: uid(),
+    tenantId: auth.tenantId,
+    actorSub: auth.user.sub,
     actorName: auth.user.name,
-    action: "TASK_UPDATED",
-    entityType: "task",
-    entityId: id,
-    summary: `Updated task: ${next.taskName}`
-  });
-
-  return json(next);
-};
-
-export const onRequestDelete = async ({ request, env }) => {
-  const auth = await requireAuth(request, env);
-  if (!auth.ok) return json(auth.body, auth.status);
-
-  const tm = await getTenantForUser(env, auth.user.userId);
-  if (!tm?.tenantId) return unauthorized("No tenant membership. Call /api/tenants/bootstrap first.");
-
-  const url = new URL(request.url);
-  const id = url.searchParams.get("id");
-  if (!id) return badRequest("Missing id");
-
-  const existing = await env.DB.prepare(
-    `SELECT * FROM tasks WHERE id = ? AND tenantId = ? LIMIT 1`
-  )
-    .bind(id, tm.tenantId)
-    .first();
-
-  if (!existing) return json({ ok: true });
-
-  const role = tm.role || "member";
-  const canDelete = canEditAny(role);
-
-  if (!canDelete) return forbidden("Only owner/admin can delete tasks");
-
-  await env.DB.prepare(`DELETE FROM tasks WHERE id=? AND tenantId=?`).bind(id, tm.tenantId).run();
-
-  await writeAudit(env, {
-    tenantId: tm.tenantId,
-    actorUserId: auth.user.userId,
-    actorEmail: auth.user.email,
-    actorName: auth.user.name,
-    action: "TASK_DELETED",
-    entityType: "task",
-    entityId: id,
-    summary: `Deleted task: ${existing.taskName}`
+    actorEmail: auth.user.email || "",
+    action: "task_updated",
+    summary: `Updated task: ${patch.taskName}`,
+    meta: JSON.stringify({ taskId: body.id }),
+    createdAt: nowIso(),
   });
 
   return json({ ok: true });
-};
+}
+
+export async function onRequestDelete({ request, env }) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.res;
+  if (!auth.tenantId) return unauthorized("No tenant selected. Run tenant bootstrap.");
+
+  const url = new URL(request.url);
+  const id = url.searchParams.get("id");
+  if (!id) return badRequest("id is required");
+
+  const existing = await env.DB.prepare(
+    "SELECT * FROM tasks WHERE id = ? AND tenantId = ? LIMIT 1"
+  )
+    .bind(id, auth.tenantId)
+    .first();
+
+  if (!existing) return badRequest("Task not found");
+
+  const isOwner = (existing.ownerEmail || "").toLowerCase() === (auth.user.email || "").toLowerCase();
+  const canDelete = auth.role === "admin" || isOwner;
+  if (!canDelete) return forbidden("You can only delete your own tasks");
+
+  await env.DB.prepare("DELETE FROM tasks WHERE id = ? AND tenantId = ?")
+    .bind(id, auth.tenantId)
+    .run();
+
+  await logActivity(env, {
+    id: uid(),
+    tenantId: auth.tenantId,
+    actorSub: auth.user.sub,
+    actorName: auth.user.name,
+    actorEmail: auth.user.email || "",
+    action: "task_deleted",
+    summary: `Deleted task: ${existing.taskName}`,
+    meta: JSON.stringify({ taskId: id }),
+    createdAt: nowIso(),
+  });
+
+  return json({ ok: true });
+}

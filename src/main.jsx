@@ -7,8 +7,14 @@ import "./index.css";
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
+
+// Use env if provided, else current origin (best for prod+staging+local)
 const redirectUri =
-  import.meta.env.VITE_AUTH0_REDIRECT_URI || window.location.origin + "/";
+  import.meta.env.VITE_AUTH0_REDIRECT_URI?.trim() || window.location.origin;
+
+if (!domain || !clientId || !audience) {
+  console.warn("Missing Auth0 env vars:", { domain, clientId, audience });
+}
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -18,10 +24,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       authorizationParams={{
         redirect_uri: redirectUri,
         audience,
-        scope: "openid profile email"
       }}
       cacheLocation="localstorage"
-      useRefreshTokens
+      useRefreshTokens={true}
     >
       <App />
     </Auth0Provider>

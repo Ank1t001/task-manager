@@ -1,86 +1,109 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-export function json(body, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(body), {
+/**
+ * Expected env vars (Pages Functions):
+ * AUTH0_DOMAIN   = taskmanager.ca.auth0.com
+ * AUTH0_AUDIENCE = https://task-manager/api
+ * AUTH0_ISSUER   = https://taskmanager.ca.auth0.com/
+ */
+
+function envOrThrow(env, key) {
+  const v = env[key];
+  if (!v) throw new Error(`Missing env var: ${key}`);
+  return v;
+}
+
+export function json(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), {
     status,
     headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...extraHeaders
-    }
+      "Content-Type": "application/json",
+      ...extraHeaders,
+    },
   });
 }
 
 export function badRequest(message = "Bad Request") {
   return json({ error: message }, 400);
 }
+
 export function unauthorized(message = "Unauthorized") {
-  return json({ error: message }, 401, { "www-authenticate": "Bearer" });
+  return json({ error: message }, 401);
 }
+
 export function forbidden(message = "Forbidden") {
   return json({ error: message }, 403);
 }
 
-function getBearer(request) {
-  const h = request.headers.get("authorization") || "";
+function getBearer(req) {
+  const h = req.headers.get("Authorization") || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : null;
+  return m ? m[1] : "";
 }
 
-async function fetchUserInfo(env, token) {
-  // Auth0 userinfo endpoint
-  const issuer = env.AUTH0_ISSUER || `https://${env.AUTH0_DOMAIN}/`;
-  const url = issuer.replace(/\/+$/, "/") + "userinfo";
-
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  if (!res.ok) return null;
-  return res.json();
-}
-
+/**
+ * Verifies Auth0 access token and returns user claims.
+ */
 export async function getUser(request, env) {
   const token = getBearer(request);
   if (!token) return null;
 
-  const domain = env.AUTH0_DOMAIN;
-  const issuer = env.AUTH0_ISSUER || `https://${domain}/`;
-  const audience = env.AUTH0_AUDIENCE;
-
-  if (!domain || !audience) return null;
+  const domain = envOrThrow(env, "AUTH0_DOMAIN");
+  const audience = envOrThrow(env, "AUTH0_AUDIENCE");
+  const issuer = envOrThrow(env, "AUTH0_ISSUER");
 
   const jwks = createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`));
 
   const { payload } = await jwtVerify(token, jwks, {
-    issuer: issuer.replace(/\/+$/, "/"),
-    audience
+    issuer,
+    audience,
   });
 
-  // Try to enrich from userinfo (email/name usually not in access token for custom API)
-  const ui = await fetchUserInfo(env, token);
-
-  const userId = payload.sub;
-  const email = ui?.email || payload.email || "";
-  const name = ui?.name || payload.name || email || userId;
-
   return {
-    userId,
-    email,
-    name,
-    claims: payload
+    sub: payload.sub,
+    email: payload.email || "",
+    name: payload.name || payload.nickname || payload.email || payload.sub,
+    claims: payload,
   };
 }
 
+/**
+ * Ensures user is authenticated AND resolves tenantId.
+ * Multi-tenant model:
+ * - tenants(id, name, createdAt)
+ * - tenant_members(tenantId, userSub, role, createdAt)
+ */
 export async function requireAuth(request, env) {
+  let u;
   try {
-    const token = getBearer(request);
-    if (!token) return { ok: false, status: 401, body: { error: "Unauthorized" } };
-
-    const user = await getUser(request, env);
-    if (!user?.userId) return { ok: false, status: 401, body: { error: "Unauthorized" } };
-
-    return { ok: true, status: 200, user };
+    u = await getUser(request, env);
   } catch (e) {
-    return { ok: false, status: 401, body: { error: "Unauthorized" } };
+    return { ok: false, res: unauthorized(`Invalid token: ${e?.message || e}`) };
   }
+
+  if (!u) return { ok: false, res: unauthorized("Missing bearer token") };
+
+  // Resolve tenant membership
+  const member = await env.DB.prepare(
+    "SELECT tenantId, role FROM tenant_members WHERE userSub = ? LIMIT 1"
+  )
+    .bind(u.sub)
+    .first();
+
+  if (!member?.tenantId) {
+    // Not yet onboarded to a tenant (bootstrap step will create membership)
+    return {
+      ok: true,
+      user: u,
+      tenantId: null,
+      role: "member",
+    };
+  }
+
+  return {
+    ok: true,
+    user: u,
+    tenantId: member.tenantId,
+    role: member.role || "member",
+  };
 }
