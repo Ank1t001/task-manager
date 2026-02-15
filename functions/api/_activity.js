@@ -1,4 +1,3 @@
-// functions/api/_activity.js
 import { json } from "./_auth";
 
 export function nowIso() {
@@ -6,68 +5,58 @@ export function nowIso() {
 }
 
 export function uid() {
-  // Works in Workers runtime
-  return crypto.randomUUID();
+  // good-enough id for D1 rows (no crypto dependency)
+  return globalThis.crypto?.randomUUID
+    ? crypto.randomUUID()
+    : `id_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
-export async function writeAudit(ctx, {
-  tenantId,
-  projectName = "",
-  taskId = "",
-  actorEmail = "",
-  actorName = "",
-  action = "",
-  summary = "",
-  meta = {},
-}) {
-  const createdAt = nowIso();
-  const id = uid();
-
-  await ctx.env.DB.prepare(
-    `INSERT INTO activity_log
-      (id, tenantId, projectName, taskId, actorEmail, actorName, action, summary, meta, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    id,
+/**
+ * Writes to audit_log table (already in your DB list).
+ * If your table schema differs, update the INSERT column list accordingly.
+ */
+export async function writeAudit(env, entry) {
+  const {
     tenantId,
-    projectName,
-    taskId,
-    actorEmail,
-    actorName,
+    actorUserId = "",
+    actorEmail = "",
+    actorName = "",
     action,
+    entityType = "",
+    entityId = "",
     summary,
-    JSON.stringify(meta || {}),
-    createdAt
-  ).run();
+    meta = "",
+  } = entry;
 
-  return { id, createdAt };
+  await env.DB.prepare(
+    `INSERT INTO audit_log
+     (id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      uid(),
+      tenantId,
+      actorUserId,
+      actorEmail,
+      actorName,
+      action,
+      entityType,
+      entityId,
+      summary,
+      typeof meta === "string" ? meta : JSON.stringify(meta || {}),
+      nowIso()
+    )
+    .run();
 }
 
-export async function logActivity(ctx, user, action, summary, meta = {}) {
-  const tenantId = user?.tenantId || "";
-  await writeAudit(ctx, {
-    tenantId,
-    projectName: meta.projectName || "",
-    taskId: meta.taskId || "",
-    actorEmail: user?.email || "",
-    actorName: user?.name || "",
-    action,
-    summary,
-    meta,
-  });
+export async function logActivity(env, entry) {
+  // alias so older code keeps working
+  return writeAudit(env, entry);
 }
 
-export async function listAudit(ctx, tenantId, limit = 200) {
-  const rows = await ctx.env.DB.prepare(
-    `SELECT * FROM activity_log
-     WHERE tenantId = ?
-     ORDER BY createdAt DESC
-     LIMIT ?`
-  ).bind(tenantId, limit).all();
-
-  return rows.results || [];
-}
-
-export function ok(req, message = "ok") {
-  return json(req, { ok: true, message });
+/**
+ * Optional endpoint helper if you expose /api/activity
+ */
+export function ok(body = { ok: true }) {
+  return json(body, 200);
 }

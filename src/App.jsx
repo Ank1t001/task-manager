@@ -1,21 +1,14 @@
-// src/App.jsx
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
-import MiniDashboard from "./MiniDashboard.jsx";
-import TaskTable from "./TaskTable.jsx";
-import Modal from "./Modal.jsx";
-import TaskForm from "./TaskForm.jsx";
+import MiniDashboard from "./MiniDashboard";
+import TaskTable from "./TaskTable";
+import KanbanBoard from "./KanbanBoard";
+import Projects from "./Projects";
+import Modal from "./Modal";
+import TaskForm from "./TaskForm";
 
-const APP_VERSION = "v13.0-auth0-fix";
-
-function normalizeUser(u) {
-  if (!u) return { name: "Unknown", email: "" };
-  return {
-    name: u.name || u.nickname || (u.email ? u.email.split("@")[0] : "Unknown"),
-    email: u.email || "",
-  };
-}
+const APP_VERSION = "v13.1-auth0-fixed";
 
 export default function App() {
   const {
@@ -27,286 +20,263 @@ export default function App() {
     getAccessTokenSilently,
   } = useAuth0();
 
-  const me = useMemo(() => normalizeUser(user), [user]);
-
-  const [tab, setTab] = useState("dashboard");
-
+  const [tab, setTab] = useState("dashboard"); // dashboard | tasks | kanban | projects
   const [tasks, setTasks] = useState([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [me, setMe] = useState(null);
   const [apiError, setApiError] = useState("");
 
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(false); // default LIGHT
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editTask, setEditTask] = useState(null);
 
-  // Modal state for create/edit
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState(null);
-
-  // Filters (table)
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [ownerFilter, setOwnerFilter] = useState("All");
-
-  async function apiFetch(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    headers.set("Content-Type", "application/json");
-
-    if (isAuthenticated) {
-      const token = await getAccessTokenSilently({
-        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
-      });
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    const res = await fetch(path, { ...options, headers });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${txt}`);
-    }
-    return res;
-  }
-
-  async function loadTasks() {
-    setLoadingTasks(true);
-    setApiError("");
-    try {
-      const res = await apiFetch("/api/tasks", { method: "GET" });
-      const data = await res.json();
-      setTasks(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setTasks([]);
-      setApiError(String(e.message || e));
-    } finally {
-      setLoadingTasks(false);
-    }
-  }
-
-  useEffect(() => {
-    // keep UI light by default unless user toggles
-    document.documentElement.dataset.theme = darkMode ? "dark" : "light";
-  }, [darkMode]);
-
-  useEffect(() => {
-    // Only load tasks after auth is resolved
-    if (!isLoading && isAuthenticated) loadTasks();
-    if (!isLoading && !isAuthenticated) {
-      setTasks([]);
-      setApiError("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, isAuthenticated]);
-
-  const canEditAny = false; // SaaS: later drive from roles/claims
-  const canEditTask = (t) => (t?.ownerEmail || "").toLowerCase() === (me.email || "").toLowerCase();
-
-  const filteredTasks = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return tasks.filter((t) => {
-      const matchesQ =
-        !q ||
-        (t.taskName || "").toLowerCase().includes(q) ||
-        (t.description || "").toLowerCase().includes(q) ||
-        (t.type || t.section || "").toLowerCase().includes(q) ||
-        (t.externalStakeholders || "").toLowerCase().includes(q);
-
-      const matchesStatus = statusFilter === "All" || (t.status || "") === statusFilter;
-      const matchesOwner = ownerFilter === "All" || (t.owner || "") === ownerFilter;
-
-      return matchesQ && matchesStatus && matchesOwner;
+  // ---- Authenticated API helper (Bearer token)
+  const apiFetch = async (path, options = {}) => {
+    const token = await getAccessTokenSilently();
+    const res = await fetch(path, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
     });
-  }, [tasks, query, statusFilter, ownerFilter]);
+    const text = await res.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    if (!res.ok) {
+      const msg = typeof data === "object" && data?.error ? data.error : res.statusText;
+      throw new Error(`${res.status} ${msg}`);
+    }
+    return data;
+  };
 
-  const ownerOptions = useMemo(() => {
-    const set = new Set(["All"]);
-    tasks.forEach((t) => t.owner && set.add(t.owner));
-    return Array.from(set);
+  // ---- On login: bootstrap tenant + load /me + /tasks
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      setApiError("");
+
+      if (!isAuthenticated) {
+        setMe(null);
+        setTasks([]);
+        return;
+      }
+
+      try {
+        // Ensure tenant exists (idempotent)
+        await apiFetch("/api/tenants/bootstrap", {
+          method: "POST",
+          body: JSON.stringify({ name: "My Workspace" }),
+        });
+
+        const meData = await apiFetch("/api/me");
+        const tasksData = await apiFetch("/api/tasks");
+
+        if (!cancelled) {
+          setMe(meData);
+          setTasks(Array.isArray(tasksData) ? tasksData : []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setApiError(String(e.message || e));
+          setMe(null);
+          setTasks([]);
+        }
+      }
+    };
+
+    if (!isLoading) run();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isLoading]);
+
+  const signedInLabel = useMemo(() => {
+    if (!isAuthenticated) return "Not signed in";
+    const nm = user?.name || user?.email || "User";
+    const role = me?.role ? String(me.role) : "member";
+    return `${nm} (${role})`;
+  }, [isAuthenticated, user, me]);
+
+  // ---- Metrics (Total / Overdue / In Progress / Done)
+  const metrics = useMemo(() => {
+    const total = tasks.length;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const overdue = tasks.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      const due = (t.dueDate || "").trim();
+      if (!due) return false;
+      const d = new Date(`${due}T00:00:00`);
+      return d < today && (s === "to do" || s === "todo" || s === "in progress" || s === "blocked");
+    }).length;
+
+    const inProgress = tasks.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      if (s !== "in progress") return false;
+      // exclude overdue
+      const due = (t.dueDate || "").trim();
+      if (!due) return true;
+      const d = new Date(`${due}T00:00:00`);
+      return d >= today;
+    }).length;
+
+    const done = tasks.filter((t) => (t.status || "").toLowerCase() === "done").length;
+
+    return { total, overdue, inProgress, done };
   }, [tasks]);
 
-  const typeOptions = useMemo(() => {
-    const set = new Set(["All"]);
-    tasks.forEach((t) => (t.type || t.section) && set.add(t.type || t.section));
-    return Array.from(set);
-  }, [tasks]);
+  const handleLogin = async () => {
+    await loginWithRedirect();
+  };
 
-  async function handleDelete(id) {
-    if (!id) return;
+  const handleLogout = () => {
+    logout({ logoutParams: { returnTo: window.location.origin + "/" } });
+  };
+
+  const openNewTask = () => {
+    setEditTask(null);
+    setShowTaskModal(true);
+  };
+
+  const openEditTask = (t) => {
+    setEditTask(t);
+    setShowTaskModal(true);
+  };
+
+  const saveTask = async (payload) => {
+    try {
+      if (!isAuthenticated) throw new Error("Please login first.");
+
+      if (payload.id) {
+        await apiFetch("/api/tasks", { method: "PUT", body: JSON.stringify(payload) });
+      } else {
+        await apiFetch("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+      }
+
+      const tasksData = await apiFetch("/api/tasks");
+      setTasks(Array.isArray(tasksData) ? tasksData : []);
+      setShowTaskModal(false);
+      setEditTask(null);
+    } catch (e) {
+      setApiError(String(e.message || e));
+    }
+  };
+
+  const deleteTask = async (id) => {
     try {
       await apiFetch(`/api/tasks?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      await loadTasks();
+      const tasksData = await apiFetch("/api/tasks");
+      setTasks(Array.isArray(tasksData) ? tasksData : []);
     } catch (e) {
       setApiError(String(e.message || e));
     }
-  }
-
-  function handleEdit(task) {
-    setEditingTask(task);
-    setModalOpen(true);
-  }
-
-  function handleNew() {
-    setEditingTask(null);
-    setModalOpen(true);
-  }
-
-  async function handleSaveTask(payload) {
-    try {
-      if (editingTask?.id) {
-        // update
-        await apiFetch(`/api/tasks?id=${encodeURIComponent(editingTask.id)}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        });
-      } else {
-        // create
-        await apiFetch("/api/tasks", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-      }
-      setModalOpen(false);
-      setEditingTask(null);
-      await loadTasks();
-    } catch (e) {
-      setApiError(String(e.message || e));
-    }
-  }
-
-  async function exportCSV() {
-    try {
-      const rows = tasks;
-      const cols = ["taskName", "description", "owner", "ownerEmail", "type", "priority", "status", "dueDate", "externalStakeholders"];
-      const escape = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-      const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => escape(r[c])).join(","))].join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "tasks.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setApiError(String(e.message || e));
-    }
-  }
+  };
 
   return (
-    <div style={{ minHeight: "100vh" }}>
-      <div className="dtt-shell">
-        {/* Header */}
-        <div className="dtt-header">
+    <div className={darkMode ? "app dark" : "app"}>
+      <div className="shell">
+        <header className="topbar">
           <div>
-            <div className="dtt-title">Digital Team Task Tracker</div>
-            <div className="dtt-muted">
-              Signed in: {isAuthenticated ? `${me.email} (${me.name})` : "Not signed in"} • {APP_VERSION}
+            <div className="title">Digital Team Task Tracker</div>
+            <div className="sub">
+              Signed in: {signedInLabel} • {APP_VERSION}
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button className="dtt-btn" onClick={() => setDarkMode((v) => !v)}>
+          <div className="top-actions">
+            <button className="btn" type="button" onClick={() => setDarkMode((v) => !v)}>
               {darkMode ? "Light Mode" : "Dark Mode"}
             </button>
 
             {!isAuthenticated ? (
-              <button className="dtt-btn dtt-btn-primary" onClick={() => loginWithRedirect()}>
+              <button className="btn primary" type="button" onClick={handleLogin}>
                 Login
               </button>
             ) : (
-              <button
-                className="dtt-btn"
-                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-              >
+              <button className="btn" type="button" onClick={handleLogout}>
                 Logout
               </button>
             )}
 
-            <button className="dtt-btn" disabled={!isAuthenticated} onClick={exportCSV}>
-              Export CSV
-            </button>
-
-            <span className="dtt-pill">{tasks.length} tasks</span>
+            <div className="pill">{tasks.length} tasks</div>
           </div>
-        </div>
+        </header>
 
-        {/* Tabs + action */}
-        <div className="dtt-tabs-row">
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className={`dtt-tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
-              Dashboard
-            </button>
-            <button className={`dtt-tab ${tab === "tasks" ? "active" : ""}`} onClick={() => setTab("tasks")}>
-              Tasks
-            </button>
-            <button className={`dtt-tab ${tab === "kanban" ? "active" : ""}`} onClick={() => setTab("kanban")}>
-              Kanban
-            </button>
-            <button className={`dtt-tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
-              Projects
-            </button>
-          </div>
+        {apiError ? <div className="error">API Error: {apiError}</div> : null}
 
-          <button className="dtt-btn dtt-btn-primary" disabled={!isAuthenticated} onClick={handleNew}>
-            + New Task
+        <div className="tabs">
+          <button className={tab === "dashboard" ? "tab active" : "tab"} onClick={() => setTab("dashboard")}>
+            Dashboard
           </button>
+          <button className={tab === "tasks" ? "tab active" : "tab"} onClick={() => setTab("tasks")}>
+            Tasks
+          </button>
+          <button className={tab === "kanban" ? "tab active" : "tab"} onClick={() => setTab("kanban")}>
+            Kanban
+          </button>
+          <button className={tab === "projects" ? "tab active" : "tab"} onClick={() => setTab("projects")}>
+            Projects
+          </button>
+
+          <div className="tabs-right">
+            <button className="btn primary" type="button" onClick={openNewTask} disabled={!isAuthenticated}>
+              + New Task
+            </button>
+          </div>
         </div>
 
-        {/* API error */}
-        {apiError ? (
-          <div className="dtt-alert">
-            <strong>Tasks API Error:</strong> {apiError}
-          </div>
-        ) : null}
-
-        {/* Views */}
         {tab === "dashboard" && (
           <MiniDashboard
             tasks={tasks}
-            me={me}
+            meEmail={user?.email || ""}
+            metrics={metrics}
           />
         )}
 
         {tab === "tasks" && (
-          <>
-            {loadingTasks ? <div className="dtt-muted">Loading tasks…</div> : null}
-            <TaskTable
-              tasks={filteredTasks}
-              allOwnerOptions={ownerOptions}
-              allTypeOptions={typeOptions}
-              query={query}
-              setQuery={setQuery}
-              statusFilter={statusFilter}
-              setStatusFilter={setStatusFilter}
-              ownerFilter={ownerFilter}
-              setOwnerFilter={setOwnerFilter}
-              onDelete={handleDelete}
-              onEdit={handleEdit}
-              canEditAny={canEditAny}
-              canEditTask={canEditTask}
-            />
-          </>
+          <TaskTable
+            tasks={tasks}
+            onEdit={openEditTask}
+            onDelete={deleteTask}
+            canEditAny={me?.role === "owner"}
+            currentUserEmail={user?.email || ""}
+          />
         )}
 
         {tab === "kanban" && (
-          <div className="dtt-card" style={{ padding: 18 }}>
-            <div className="dtt-muted">Kanban view can stay as-is for now (auth is the priority).</div>
-          </div>
+          <KanbanBoard
+            tasks={tasks}
+            onUpdateTask={saveTask}
+            canEditAny={me?.role === "owner"}
+            currentUserEmail={user?.email || ""}
+          />
         )}
 
-        {tab === "projects" && (
-          <div className="dtt-card" style={{ padding: 18 }}>
-            <div className="dtt-muted">Projects view can stay as-is for now (auth + tenant isolation first).</div>
-          </div>
+        {tab === "projects" && <Projects />}
+
+        {showTaskModal && (
+          <Modal onClose={() => setShowTaskModal(false)} title={editTask ? "Edit task" : "Create a new task"}>
+            <TaskForm
+              initial={editTask}
+              onCancel={() => setShowTaskModal(false)}
+              onSave={saveTask}
+              currentUser={{
+                name: user?.name || "",
+                email: user?.email || "",
+                role: me?.role || "member",
+              }}
+            />
+          </Modal>
         )}
       </div>
-
-      {/* Modal (Create/Edit) */}
-      <Modal open={modalOpen} onClose={() => { setModalOpen(false); setEditingTask(null); }}>
-        <TaskForm
-          mode={editingTask ? "edit" : "create"}
-          initialTask={editingTask}
-          currentUser={me}
-          onCancel={() => { setModalOpen(false); setEditingTask(null); }}
-          onSave={handleSaveTask}
-        />
-      </Modal>
     </div>
   );
 }
