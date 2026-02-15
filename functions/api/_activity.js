@@ -1,62 +1,35 @@
 import { json } from "./_auth";
 
-export function nowIso() {
-  return new Date().toISOString();
-}
+export const nowIso = () => new Date().toISOString();
 
-export function uid() {
-  // good-enough id for D1 rows (no crypto dependency)
-  return globalThis.crypto?.randomUUID
-    ? crypto.randomUUID()
-    : `id_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
+export const uid = () => {
+  // Works in Workers runtime
+  return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`).toString();
+};
 
-/**
- * Writes to audit_log table (already in your DB list).
- * If your table schema differs, update the INSERT column list accordingly.
- */
-export async function writeAudit(env, entry) {
-  const {
-    tenantId,
-    actorUserId = "",
-    actorEmail = "",
-    actorName = "",
-    action,
-    entityType = "",
-    entityId = "",
-    summary,
-    meta = "",
-  } = entry;
+// Writes to audit_log table (you already have it in D1)
+export async function writeAudit(env, {
+  tenantId,
+  actorEmail,
+  actorName,
+  action,
+  summary,
+  meta = ""
+}) {
+  if (!env?.DB) return;
 
+  const id = uid();
+  const createdAt = nowIso();
   await env.DB.prepare(
-    `INSERT INTO audit_log
-     (id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      uid(),
-      tenantId,
-      actorUserId,
-      actorEmail,
-      actorName,
-      action,
-      entityType,
-      entityId,
-      summary,
-      typeof meta === "string" ? meta : JSON.stringify(meta || {}),
-      nowIso()
-    )
-    .run();
+    `INSERT INTO audit_log (id, tenantId, actorEmail, actorName, action, summary, meta, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, tenantId, actorEmail, actorName, action, summary, meta, createdAt).run();
 }
 
+// Backwards-compatible name used by some files
 export async function logActivity(env, entry) {
-  // alias so older code keeps working
   return writeAudit(env, entry);
 }
 
-/**
- * Optional endpoint helper if you expose /api/activity
- */
-export function ok(body = { ok: true }) {
-  return json(body, 200);
-}
+// Optional endpoint helper if you use it in an API route
+export const ok = (data) => json(data, { status: 200 });
