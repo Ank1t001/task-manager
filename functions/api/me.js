@@ -1,23 +1,14 @@
-export async function onRequest({ request }) {
-  const email =
-    request.headers.get("Cf-Access-Authenticated-User-Email") ||
-    request.headers.get("cf-access-authenticated-user-email") ||
-    "";
+// functions/api/me.js
+import { getUser, json, unauthorized } from "./_auth";
 
-  if (!email) {
-    return new Response(JSON.stringify({ email: "", authenticated: false }), {
-      status: 401,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-      },
-    });
-  }
+export async function onRequestGet(context) {
+  const user = await getUser(context);
+  if (!user.email) return unauthorized();
 
-  return new Response(JSON.stringify({ email, authenticated: true }), {
-    headers: {
-      "content-type": "application/json",
-      "cache-control": "no-store",
-    },
+  return json({
+    email: user.email,
+    name: user.name,
+    isAdmin: user.isAdmin,
+    tenantId: user.tenantId,
   });
 }
