@@ -1,40 +1,39 @@
+import { json } from "./_auth";
+
 export function nowIso() {
   return new Date().toISOString();
 }
 
 export function uid() {
-  // Good enough unique id for D1 rows
+  // Cloudflare Workers supports crypto.randomUUID()
   return crypto.randomUUID();
 }
 
-export async function writeAudit(env, entry) {
-  // audit_log table is already in your D1 list
-  const id = uid();
-  const createdAt = nowIso();
-
-  const {
-    tenantId,
-    actorUserId = "",
-    actorEmail = "",
-    actorName = "",
-    action,
-    entityType = "",
-    entityId = "",
-    summary = "",
-    meta = ""
-  } = entry;
-
+/**
+ * Write into D1 audit_log table.
+ * Table: audit_log(id, tenantId, actorEmail, actorName, action, summary, meta, createdAt)
+ */
+export async function writeAudit(env, row) {
+  const createdAt = row.createdAt || nowIso();
   await env.DB.prepare(
-    `INSERT INTO audit_log (id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO audit_log (id, tenantId, actorEmail, actorName, action, summary, meta, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(id, tenantId, actorUserId, actorEmail, actorName, action, entityType, entityId, summary, meta, createdAt)
+    .bind(
+      row.id || uid(),
+      row.tenantId || "",
+      row.actorEmail || "",
+      row.actorName || "",
+      row.action || "",
+      row.summary || "",
+      row.meta || "",
+      createdAt
+    )
     .run();
-
-  return { id, createdAt };
 }
 
-// Backwards compat with your older code
-export async function logActivity(env, entry) {
-  return writeAudit(env, entry);
+export async function logActivity(env, { tenantId, actorEmail, actorName, action, summary, meta }) {
+  await writeAudit(env, { tenantId, actorEmail, actorName, action, summary, meta });
 }
+
+export { json };

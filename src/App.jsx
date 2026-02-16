@@ -1,179 +1,212 @@
-import { useEffect, useMemo, useState } from "react";
+// src/App.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 export default function App() {
-  // --- UI/theme (default LIGHT as you requested)
-  const [darkMode, setDarkMode] = useState(false);
-
-  // --- Auth0
   const {
-    isLoading,
     isAuthenticated,
+    isLoading,
     user,
     loginWithRedirect,
     logout,
     getAccessTokenSilently,
   } = useAuth0();
 
-  const [apiError, setApiError] = useState("");
   const [tasks, setTasks] = useState([]);
+  const [me, setMe] = useState(null);
+  const [error, setError] = useState("");
 
-  const displayName =
-    user?.name || user?.nickname || user?.email || "Not signed in";
+  const taskCount = tasks.length;
 
-  const authDebug = useMemo(
-    () => ({
-      isLoading,
-      isAuthenticated,
-      user: user ? { email: user.email, name: user.name, sub: user.sub } : null,
-    }),
-    [isLoading, isAuthenticated, user]
-  );
-
-  async function getToken() {
-    // Always request for the configured API audience
-    const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
-
-    return await getAccessTokenSilently({
-      authorizationParams: { audience },
+  const apiFetch = async (path, opts = {}) => {
+    const token = await getAccessTokenSilently({
+      authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
     });
-  }
 
-  async function apiFetch(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    headers.set("Content-Type", "application/json");
+    const res = await fetch(path, {
+      ...opts,
+      headers: {
+        "content-type": "application/json",
+        ...(opts.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
-    if (isAuthenticated) {
-      const token = await getToken();
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    const res = await fetch(path, { ...options, headers });
-    const text = await res.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text;
-    }
     if (!res.ok) {
-      const msg =
-        typeof data === "string"
-          ? data
-          : data?.error || data?.message || `HTTP ${res.status}`;
-      throw new Error(msg);
+      const txt = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText} :: ${txt}`);
     }
-    return data;
-  }
+    return res.json();
+  };
 
-  async function loadTasks() {
-    setApiError("");
+  const loadAll = async () => {
+    setError("");
     try {
-      const data = await apiFetch("/api/tasks");
-      setTasks(Array.isArray(data) ? data : []);
+      const [meRes, tasksRes] = await Promise.all([
+        apiFetch("/api/me"),
+        apiFetch("/api/tasks"),
+      ]);
+      setMe(meRes);
+      setTasks(tasksRes || []);
     } catch (e) {
+      setError(String(e.message || e));
+      setMe(null);
       setTasks([]);
-      setApiError(String(e?.message || e));
     }
-  }
+  };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadTasks();
-    } else {
+    if (isAuthenticated) loadAll();
+    else {
+      setMe(null);
       setTasks([]);
+      setError("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  const onLogin = async () => {
-    // Prevent “button refresh” behavior
-    await loginWithRedirect({
-      authorizationParams: {
-        redirect_uri:
-          import.meta.env.VITE_AUTH0_REDIRECT_URI?.trim() ||
-          window.location.origin,
-        audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-      },
-    });
-  };
-
-  const onLogout = () => {
-    logout({
-      logoutParams: {
-        returnTo:
-          import.meta.env.VITE_AUTH0_REDIRECT_URI?.trim() ||
-          window.location.origin,
-      },
-    });
-  };
+  const signedInLabel = useMemo(() => {
+    if (isLoading) return "Loading…";
+    if (!isAuthenticated) return "Not signed in";
+    return me?.email || user?.email || "Signed in";
+  }, [isLoading, isAuthenticated, me, user]);
 
   return (
-    <div className={darkMode ? "dtt-root dtt-dark" : "dtt-root dtt-light"}>
-      <div className="dtt-shell">
-        <header className="dtt-header">
+    <div style={{ minHeight: "100vh", background: "#f4f6fb", padding: 24 }}>
+      <div
+        style={{
+          maxWidth: 1100,
+          margin: "0 auto",
+          background: "white",
+          borderRadius: 18,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.08)",
+          padding: 22,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <div>
-            <h1 className="dtt-title">Digital Team Task Tracker</h1>
-            <div className="dtt-subtitle">
-              Signed in: {displayName} • v13.1-auth0
+            <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: -0.5 }}>
+              Digital Team Task Tracker
+            </div>
+            <div style={{ marginTop: 6, color: "#546077" }}>
+              Signed in: <b>{signedInLabel}</b>
             </div>
           </div>
 
-          <div className="dtt-actions">
-            <button
-              type="button"
-              className="dtt-btn"
-              onClick={() => setDarkMode((v) => !v)}
-            >
-              {darkMode ? "Light Mode" : "Dark Mode"}
-            </button>
-
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {!isAuthenticated ? (
-              <button type="button" className="dtt-btn dtt-btn-primary" onClick={onLogin}>
+              <button
+                type="button"
+                onClick={() => loginWithRedirect()}
+                style={btnPrimary}
+              >
                 Login
               </button>
             ) : (
-              <button type="button" className="dtt-btn" onClick={onLogout}>
+              <button
+                type="button"
+                onClick={() =>
+                  logout({
+                    logoutParams: {
+                      returnTo:
+                        import.meta.env.VITE_AUTH0_REDIRECT_URI ||
+                        `${window.location.origin}/`,
+                    },
+                  })
+                }
+                style={btnGhost}
+              >
                 Logout
               </button>
             )}
 
-            <div className="dtt-pill">{tasks.length} tasks</div>
+            <div style={pill}>{taskCount} tasks</div>
           </div>
-        </header>
-
-        {/* Auth debug (REMOVE later) */}
-        <div className="dtt-card" style={{ marginTop: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Auth Debug</div>
-          <pre style={{ margin: 0, fontSize: 12, opacity: 0.9 }}>
-            {JSON.stringify(authDebug, null, 2)}
-          </pre>
         </div>
 
-        {apiError ? (
-          <div className="dtt-error" style={{ marginTop: 12 }}>
-            Tasks API Error: {apiError}
+        {error ? (
+          <div style={errorBox}>
+            <b>API Error:</b> {error}
+            <div style={{ marginTop: 8, color: "#7a2f2f" }}>
+              If you see <code>401</code>, you’re not logged in or tenant membership isn’t set.
+            </div>
           </div>
         ) : null}
 
-        {/* Minimal tasks output for now (so you can confirm auth+API works) */}
-        <div className="dtt-card" style={{ marginTop: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 10 }}>Tasks</div>
+        <div style={{ marginTop: 18 }}>
           {!isAuthenticated ? (
-            <div style={{ opacity: 0.75 }}>Login to load tasks.</div>
-          ) : tasks.length === 0 ? (
-            <div style={{ opacity: 0.75 }}>No tasks found.</div>
+            <div style={{ padding: 18, borderRadius: 14, background: "#f7f9ff", border: "1px solid #e6ecff" }}>
+              Login to load tasks.
+            </div>
           ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {tasks.map((t) => (
-                <div key={t.id} className="dtt-row">
-                  <div style={{ fontWeight: 800 }}>{t.taskName}</div>
-                  <div style={{ opacity: 0.8 }}>{t.description || "—"}</div>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {t.owner} • {t.status} • {t.priority} • {t.dueDate || "No due date"}
-                  </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                <div style={tile("#6b7cff")}>
+                  <div style={tileTitle}>Total Tasks</div>
+                  <div style={tileNum}>{taskCount}</div>
                 </div>
-              ))}
+                <div style={tile("#ff6b6b")}>
+                  <div style={tileTitle}>Overdue</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "Overdue").length}</div>
+                </div>
+                <div style={tile("#ffb84d")}>
+                  <div style={tileTitle}>In Progress</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "In Progress").length}</div>
+                </div>
+                <div style={tile("#3ddc84")}>
+                  <div style={tileTitle}>Done</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "Done").length}</div>
+                </div>
+              </div>
+
+              <div style={{ overflowX: "auto", border: "1px solid #eef1f7", borderRadius: 14 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead style={{ background: "#f7f9ff" }}>
+                    <tr>
+                      {["Task", "Owner", "Priority", "Status", "Due", "Project", "Stage"].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            padding: "12px 14px",
+                            fontSize: 13,
+                            color: "#546077",
+                            borderBottom: "1px solid #eef1f7",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((t) => (
+                      <tr key={t.id} style={{ borderBottom: "1px solid #f0f2f7" }}>
+                        <td style={td}><b>{t.taskName}</b></td>
+                        <td style={td}>{t.owner || "—"}</td>
+                        <td style={td}>{t.priority || "—"}</td>
+                        <td style={td}>{t.status || "—"}</td>
+                        <td style={td}>{t.dueDate || "—"}</td>
+                        <td style={td}>{t.projectName || "—"}</td>
+                        <td style={td}>{t.stage || "—"}</td>
+                      </tr>
+                    ))}
+                    {!tasks.length ? (
+                      <tr>
+                        <td style={{ padding: 16, color: "#7a859c" }} colSpan={7}>
+                          No tasks found for your tenant.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+                <button type="button" style={btnGhost} onClick={loadAll}>
+                  Refresh
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -181,3 +214,52 @@ export default function App() {
     </div>
   );
 }
+
+const btnPrimary = {
+  border: "0",
+  background: "#365cff",
+  color: "white",
+  padding: "10px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const btnGhost = {
+  border: "1px solid #dbe2f0",
+  background: "white",
+  color: "#182033",
+  padding: "10px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const pill = {
+  padding: "10px 14px",
+  borderRadius: 999,
+  background: "#f4f6fb",
+  border: "1px solid #e6ebf7",
+  fontWeight: 800,
+};
+
+const errorBox = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 14,
+  background: "#fff3f3",
+  border: "1px solid #ffd1d1",
+  color: "#7a2f2f",
+};
+
+const tile = (borderColor) => ({
+  flex: 1,
+  padding: 16,
+  borderRadius: 16,
+  background: "linear-gradient(135deg, rgba(255,255,255,1), rgba(245,248,255,1))",
+  border: `2px solid ${borderColor}`,
+});
+
+const tileTitle = { fontWeight: 800, color: "#1a2340" };
+const tileNum = { marginTop: 10, fontSize: 34, fontWeight: 900 };
+const td = { padding: "12px 14px", verticalAlign: "top" };

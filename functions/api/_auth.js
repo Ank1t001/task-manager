@@ -1,109 +1,63 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jwtVerify, createRemoteJWKSet } from "jose";
 
-/**
- * Expected env vars (Pages Functions):
- * AUTH0_DOMAIN   = taskmanager.ca.auth0.com
- * AUTH0_AUDIENCE = https://task-manager/api
- * AUTH0_ISSUER   = https://taskmanager.ca.auth0.com/
- */
-
-function envOrThrow(env, key) {
-  const v = env[key];
-  if (!v) throw new Error(`Missing env var: ${key}`);
-  return v;
-}
-
-export function json(data, status = 200, extraHeaders = {}) {
+function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...extraHeaders,
-    },
+    status: init.status || 200,
+    headers: { "content-type": "application/json; charset=utf-8", ...(init.headers || {}) },
   });
 }
-
-export function badRequest(message = "Bad Request") {
-  return json({ error: message }, 400);
+function badRequest(message = "Bad Request") {
+  return json({ error: message }, { status: 400 });
+}
+function unauthorized(message = "Unauthorized") {
+  return json({ error: message }, { status: 401 });
+}
+function forbidden(message = "Forbidden") {
+  return json({ error: message }, { status: 403 });
 }
 
-export function unauthorized(message = "Unauthorized") {
-  return json({ error: message }, 401);
-}
-
-export function forbidden(message = "Forbidden") {
-  return json({ error: message }, 403);
-}
-
-function getBearer(req) {
-  const h = req.headers.get("Authorization") || "";
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : "";
+function getAuthHeader(request) {
+  const h = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice("Bearer ".length) : "";
 }
 
 /**
- * Verifies Auth0 access token and returns user claims.
+ * Validate Auth0 access token and return user identity.
+ * Expects env:
+ *  AUTH0_DOMAIN, AUTH0_AUDIENCE, AUTH0_ISSUER
  */
-export async function getUser(request, env) {
-  const token = getBearer(request);
+async function getUser(request, env) {
+  const token = getAuthHeader(request);
   if (!token) return null;
 
-  const domain = envOrThrow(env, "AUTH0_DOMAIN");
-  const audience = envOrThrow(env, "AUTH0_AUDIENCE");
-  const issuer = envOrThrow(env, "AUTH0_ISSUER");
+  const domain = env.AUTH0_DOMAIN;
+  const audience = env.AUTH0_AUDIENCE;
+  const issuer = env.AUTH0_ISSUER || `https://${domain}/`;
+
+  if (!domain || !audience) throw new Error("Missing AUTH0_DOMAIN or AUTH0_AUDIENCE");
 
   const jwks = createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`));
+  const { payload } = await jwtVerify(token, jwks, { issuer, audience });
 
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer,
-    audience,
-  });
+  // Typical Auth0 claims
+  const email = payload.email || payload["https://example.com/email"] || "";
+  const name = payload.name || payload.nickname || email || "User";
+  const sub = payload.sub || "";
 
-  return {
-    sub: payload.sub,
-    email: payload.email || "",
-    name: payload.name || payload.nickname || payload.email || payload.sub,
-    claims: payload,
-  };
+  return { sub, email, name, claims: payload };
 }
 
-/**
- * Ensures user is authenticated AND resolves tenantId.
- * Multi-tenant model:
- * - tenants(id, name, createdAt)
- * - tenant_members(tenantId, userSub, role, createdAt)
- */
-export async function requireAuth(request, env) {
-  let u;
+/** Require auth; returns { user } or throws Response */
+async function requireAuth(request, env) {
   try {
-    u = await getUser(request, env);
+    const user = await getUser(request, env);
+    if (!user) throw unauthorized();
+    return { user };
   } catch (e) {
-    return { ok: false, res: unauthorized(`Invalid token: ${e?.message || e}`) };
+    // If jose throws, treat as unauthorized
+    if (e instanceof Response) throw e;
+    throw unauthorized("Invalid token");
   }
-
-  if (!u) return { ok: false, res: unauthorized("Missing bearer token") };
-
-  // Resolve tenant membership
-  const member = await env.DB.prepare(
-    "SELECT tenantId, role FROM tenant_members WHERE userSub = ? LIMIT 1"
-  )
-    .bind(u.sub)
-    .first();
-
-  if (!member?.tenantId) {
-    // Not yet onboarded to a tenant (bootstrap step will create membership)
-    return {
-      ok: true,
-      user: u,
-      tenantId: null,
-      role: "member",
-    };
-  }
-
-  return {
-    ok: true,
-    user: u,
-    tenantId: member.tenantId,
-    role: member.role || "member",
-  };
 }
+
+export { json, badRequest, unauthorized, forbidden, getUser, requireAuth };

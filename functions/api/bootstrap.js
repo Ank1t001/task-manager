@@ -1,19 +1,21 @@
-import { requireAuth, json } from "../_auth";
-import { nowIso, uid, writeAudit } from "../_activity";
+import { requireAuth, json } from "./_auth";
+import { nowIso, uid, writeAudit } from "./_activity";
 
-export const onRequestPost = async ({ request, env }) => {
-  const auth = await requireAuth(request, env);
-  if (!auth.ok) return json(auth.body, auth.status);
+export const onRequestPost = async (context) => {
+  const auth = await requireAuth(context);
+  if (!auth.ok) return auth.res;
 
   const { userId, email, name } = auth.user;
 
-  const body = await request.json().catch(() => ({}));
+  const body = await context.request.json().catch(() => ({}));
   const requestedName = (body?.name || "My Workspace").toString().trim();
 
   // 1) Already member?
-  const existing = await env.DB.prepare(
+  const existing = await context.env.DB.prepare(
     `SELECT tenantId, role FROM tenant_members WHERE userId = ? LIMIT 1`
-  ).bind(userId).first();
+  )
+    .bind(userId)
+    .first();
 
   if (existing?.tenantId) {
     return json({ tenantId: existing.tenantId, role: existing.role, created: false });
@@ -23,16 +25,19 @@ export const onRequestPost = async ({ request, env }) => {
   const tenantId = uid();
   const memberId = uid();
 
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`)
-      .bind(tenantId, requestedName, nowIso()),
-    env.DB.prepare(
+  await context.env.DB.batch([
+    context.env.DB.prepare(`INSERT INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`).bind(
+      tenantId,
+      requestedName,
+      nowIso()
+    ),
+    context.env.DB.prepare(
       `INSERT INTO tenant_members (id, tenantId, userId, email, name, role, createdAt)
        VALUES (?, ?, ?, ?, ?, 'owner', ?)`
     ).bind(memberId, tenantId, userId, email, name, nowIso()),
   ]);
 
-  await writeAudit(env, {
+  await writeAudit(context.env, {
     tenantId,
     actorUserId: userId,
     actorEmail: email,

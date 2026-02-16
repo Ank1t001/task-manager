@@ -1,0 +1,13 @@
+name = "task-manager"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[vars]
+AUTH0_DOMAIN = "taskmanager.ca.auth0.com"
+AUTH0_AUDIENCE = "https://task-manager-user/api"
+AUTH0_ISSUER = "https://taskmanager.ca.auth0.com/"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "task-manager-prod"
+database_id = "701e141c-5fe3-4a6b-a72a-ca6ca69268e5"
