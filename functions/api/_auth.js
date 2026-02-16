@@ -89,7 +89,6 @@ export async function getUser(request, env) {
     return null;
   }
 }
-EOF
 export async function requireAuth(request, env) {
   const user = await getUser(request, env);
 
