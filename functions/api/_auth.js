@@ -1,9 +1,6 @@
 // functions/api/_auth.js
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-const text = (data, status = 200, headers = {}) =>
-  new Response(data, { status, headers });
-
 export const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
@@ -32,84 +29,126 @@ function requiredEnv(env, key) {
 }
 
 async function verifyAccessToken(token, env) {
-  const issuer = requiredEnv(env, "AUTH0_ISSUER"); // e.g. https://taskmanager.ca.auth0.com/
-  const audience = requiredEnv(env, "AUTH0_AUDIENCE"); // e.g. https://task-manager-user/api
+  const issuer = requiredEnv(env, "AUTH0_ISSUER");     // https://xxxxx.auth0.com/
+  const audience = requiredEnv(env, "AUTH0_AUDIENCE"); // https://task-manager-user/api
   const jwks = createRemoteJWKSet(new URL(`${issuer}.well-known/jwks.json`));
 
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer,
-    audience,
-  });
-
+  const { payload } = await jwtVerify(token, jwks, { issuer, audience });
   return payload;
 }
 
 /**
- * Returns:
- * {
- *   sub, email, name, tenantId, role, userId
- * }
+ * getUser() returns:
+ * { sub, email, name, tenantId, role, orgId, orgName }
+ *
+ * If Auth0 Organizations is used, tenantId will be org_id (and we auto-upsert tenant + member).
  */
-export async function getUser(request, env, ctx = {}) {
+export async function getUser(request, env) {
   const token = getBearerToken(request);
   if (!token) return null;
 
   let payload;
   try {
     payload = await verifyAccessToken(token, env);
-  } catch (e) {
-    // Invalid token
+  } catch {
     return null;
   }
 
-  const sub = payload.sub;
+  const sub = (payload.sub || "").toString();
+
+  // email may not exist on access tokens depending on your Auth0 config
   const email =
-    payload.email ||
-    payload["https://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"];
+    (payload.email ||
+      payload["https://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] ||
+      "").toString();
 
-  const name = payload.name || payload.nickname || email || "User";
+  const name = (payload.name || payload.nickname || email || "User").toString();
 
-  if (!email) {
-    // Token valid but no email claim
-    return { sub, email: null, name, tenantId: null, role: null, userId: sub };
+  // ✅ Auth0 Organizations
+  const orgId = (payload.org_id || "").toString();
+  const orgName = (payload.org_name || "").toString(); // sometimes present; ok if empty
+
+  // If org is present, treat it as the tenantId
+  if (orgId && env.DB) {
+    const now = new Date().toISOString();
+
+    // Ensure tenant exists
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`
+    )
+      .bind(orgId, orgName || "Workspace", now)
+      .run();
+
+    // Ensure membership exists (deterministic id so it doesn't duplicate)
+    const memberId = `${orgId}:${sub}`;
+
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO tenant_members (id, tenantId, userId, email, name, role, createdAt)
+       VALUES (?, ?, ?, ?, ?, 'member', ?)`
+    )
+      .bind(memberId, orgId, sub, email, name, now)
+      .run();
+
+    // Fetch role (admin/owner/member)
+    const member = await env.DB.prepare(
+      `SELECT tenantId, role FROM tenant_members
+       WHERE tenantId = ? AND (userId = ? OR (email != '' AND lower(email) = lower(?)))
+       LIMIT 1`
+    )
+      .bind(orgId, sub, email)
+      .first();
+
+    return {
+      sub,
+      email,
+      name,
+      tenantId: member?.tenantId || orgId,
+      role: member?.role || "member",
+      orgId,
+      orgName,
+      claims: payload,
+    };
   }
 
-  // Lookup membership in D1
-  const row = await env.DB.prepare(
-    `SELECT tenantId, role, userId, name, email
-     FROM tenant_members
-     WHERE lower(email)=lower(?)
-     LIMIT 1`
-  )
-    .bind(email)
-    .first();
+  // Fallback (non-org mode): look up membership by email only
+  if (env.DB && email) {
+    const row = await env.DB.prepare(
+      `SELECT tenantId, role
+       FROM tenant_members
+       WHERE lower(email)=lower(?)
+       LIMIT 1`
+    )
+      .bind(email)
+      .first();
 
-  if (!row) {
-    return { sub, email, name, tenantId: null, role: null, userId: sub };
+    return {
+      sub,
+      email,
+      name,
+      tenantId: row?.tenantId || null,
+      role: row?.role || null,
+      orgId: null,
+      orgName: null,
+      claims: payload,
+    };
   }
 
-  return {
-    sub,
-    email: row.email || email,
-    name: row.name || name,
-    tenantId: row.tenantId,
-    role: row.role,
-    userId: row.userId || sub,
-  };
+  return { sub, email, name, tenantId: null, role: null, orgId: null, orgName: null, claims: payload };
 }
 
 /**
- * For endpoints that must be logged in (and tenant membership must exist).
+ * requireAuth(context OR request+env)
+ * opts.allowNoTenant = true lets bootstrap work for first-time users.
  */
-export async function requireAuth(request, env) {
-  const user = await getUser(request, env);
-  if (!user) return { ok: false, response: unauthorized() };
+export async function requireAuth(contextOrRequest, maybeEnv, opts = {}) {
+  const request = contextOrRequest?.request ?? contextOrRequest;
+  const env = contextOrRequest?.env ?? maybeEnv;
 
-  if (!user.tenantId) {
-    return {
-      ok: false,
-      response: forbidden("No tenant assigned to this user yet."),
-    };
+  const user = await getUser(request, env);
+  if (!user) return { ok: false, res: unauthorized() };
+
+  if (!opts.allowNoTenant && !user.tenantId) {
+    return { ok: false, res: forbidden("No tenant assigned to this user yet.") };
   }
 
   return { ok: true, user };
