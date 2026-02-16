@@ -1,31 +1,3 @@
-import { jwtVerify, createRemoteJWKSet } from "jose";
-
-function json(data, init = {}) {
-  return new Response(JSON.stringify(data), {
-    status: init.status || 200,
-    headers: { "content-type": "application/json; charset=utf-8", ...(init.headers || {}) },
-  });
-}
-function badRequest(message = "Bad Request") {
-  return json({ error: message }, { status: 400 });
-}
-function unauthorized(message = "Unauthorized") {
-  return json({ error: message }, { status: 401 });
-}
-function forbidden(message = "Forbidden") {
-  return json({ error: message }, { status: 403 });
-}
-
-function getAuthHeader(request) {
-  const h = request.headers.get("authorization") || request.headers.get("Authorization") || "";
-  return h.startsWith("Bearer ") ? h.slice("Bearer ".length) : "";
-}
-
-/**
- * Validate Auth0 access token and return user identity.
- * Expects env:
- *  AUTH0_DOMAIN, AUTH0_AUDIENCE, AUTH0_ISSUER
- */
 async function getUser(request, env) {
   const token = getAuthHeader(request);
   if (!token) return null;
@@ -39,25 +11,32 @@ async function getUser(request, env) {
   const jwks = createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`));
   const { payload } = await jwtVerify(token, jwks, { issuer, audience });
 
-  // Typical Auth0 claims
-  const email = payload.email || payload["https://example.com/email"] || "";
-  const name = payload.name || payload.nickname || email || "User";
-  const sub = payload.sub || "";
+  const email = (payload.email || payload["https://example.com/email"] || "").toString();
+  const name = (payload.name || payload.nickname || email || "User").toString();
+  const sub = (payload.sub || "").toString();
 
-  return { sub, email, name, claims: payload };
-}
+  // 🔥 Attach tenant membership (if DB binding exists)
+  let tenantId = null;
+  let role = null;
 
-/** Require auth; returns { user } or throws Response */
-async function requireAuth(request, env) {
-  try {
-    const user = await getUser(request, env);
-    if (!user) throw unauthorized();
-    return { user };
-  } catch (e) {
-    // If jose throws, treat as unauthorized
-    if (e instanceof Response) throw e;
-    throw unauthorized("Invalid token");
+  if (env.DB && (email || sub)) {
+    const emailLower = email.trim().toLowerCase();
+
+    const member = await env.DB
+      .prepare(
+        `SELECT tenantId, role
+         FROM tenant_members
+         WHERE lower(email) = ? OR userId = ?
+         LIMIT 1`
+      )
+      .bind(emailLower, sub)
+      .first();
+
+    if (member) {
+      tenantId = member.tenantId;
+      role = member.role;
+    }
   }
-}
 
-export { json, badRequest, unauthorized, forbidden, getUser, requireAuth };
+  return { sub, email, name, tenantId, role, claims: payload };
+}
