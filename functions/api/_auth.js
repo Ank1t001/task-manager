@@ -1,9 +1,12 @@
-// functions/api/_auth.js
+cat > functions/api/_auth.js <<'EOF'
 import { jwtVerify, createRemoteJWKSet } from "jose";
 
 /** Extract Bearer token from Authorization header */
 export function getAuthHeader(request) {
-  const h = request.headers.get("Authorization") || request.headers.get("authorization") || "";
+  const h =
+    request.headers.get("Authorization") ||
+    request.headers.get("authorization") ||
+    "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m ? m[1].trim() : null;
 }
@@ -32,7 +35,7 @@ export function forbidden(message = "Forbidden") {
 }
 
 /**
- * Verify JWT + attach tenant membership (tenantId/role) from D1 (tenant_members).
+ * Verify JWT + attach tenant membership (tenantId/role) from D1 tenant_members.
  * Returns null if not logged in / token invalid.
  */
 export async function getUser(request, env) {
@@ -48,7 +51,10 @@ export async function getUser(request, env) {
       throw new Error("Missing AUTH0_DOMAIN / AUTH0_AUDIENCE / AUTH0_ISSUER");
     }
 
-    const jwks = createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`));
+    const jwks = createRemoteJWKSet(
+      new URL(`https://${domain}/.well-known/jwks.json`)
+    );
+
     const { payload } = await jwtVerify(token, jwks, { issuer, audience });
 
     const email = (payload.email || "").toString();
@@ -73,4 +79,14 @@ export async function getUser(request, env) {
 
       if (member) {
         tenantId = member.tenantId;
-        role = membe
+        role = member.role;
+      }
+    }
+
+    return { sub, email, name, tenantId, role, claims: payload };
+  } catch (err) {
+    console.log("getUser() error:", err?.message || err);
+    return null;
+  }
+}
+EOF
