@@ -90,3 +90,18 @@ export async function getUser(request, env) {
   }
 }
 EOF
+export async function requireAuth(request, env) {
+  const user = await getUser(request, env);
+
+  if (!user) {
+    return {
+      user: null,
+      response: unauthorized()
+    };
+  }
+
+  return {
+    user,
+    response: null
+  };
+}
