@@ -22,17 +22,16 @@ if (!domain || !clientId || !audience) {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{
-        redirect_uri: redirectUri, // keep trailing slash
-        audience,
-        scope: "openid profile email offline_access",
-      }}
-      cacheLocation="localstorage"
-      useRefreshTokens
-    >
-      <App />
-    </Auth0Provider>
+  domain={import.meta.env.VITE_AUTH0_DOMAIN}
+  clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
+  authorizationParams={{
+    redirect_uri: import.meta.env.VITE_AUTH0_REDIRECT_URI || window.location.origin,
+    audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+    organization: import.meta.env.VITE_AUTH0_ORG_ID,
+    scope: "openid profile email",
+  }}
+>
+  <App />
+</Auth0Provider>
   </React.StrictMode>
 );

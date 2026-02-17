@@ -20,8 +20,11 @@ export default function App() {
 
   const apiFetch = async (path, opts = {}) => {
     const token = await getAccessTokenSilently({
-      authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
-    });
+  authorizationParams: {
+    audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+    organization: import.meta.env.VITE_AUTH0_ORG_ID,
+  },
+});
 
     const res = await fetch(path, {
       ...opts,
@@ -96,12 +99,16 @@ export default function App() {
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {!isAuthenticated ? (
               <button
-                type="button"
-                onClick={() => loginWithRedirect()}
-                style={btnPrimary}
-              >
-                Login
-              </button>
+  onClick={() =>
+    loginWithRedirect({
+      authorizationParams: {
+        organization: import.meta.env.VITE_AUTH0_ORG_ID,
+      },
+    })
+  }
+>
+  Login
+</button>
             ) : (
               <button
                 type="button"
