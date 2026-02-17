@@ -8,3 +8,6 @@ export async function onRequest({ request }) {
   // If user IS authenticated, we redirect them to the app root
   return Response.redirect(returnTo, 302);
 }
+loginWithRedirect({
+  organization: "org_VzWrWJWhWcOChctX"
+});

@@ -1,155 +1,138 @@
-// functions/api/_auth.js
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jwtVerify, createRemoteJWKSet } from "jose";
 
-export const json = (data, status = 200, headers = {}) =>
+const json = (data, init = {}) =>
   new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers },
+    status: init.status || 200,
+    headers: { "content-type": "application/json", ...(init.headers || {}) },
   });
 
-export const badRequest = (message = "Bad Request", extra = {}) =>
-  json({ error: message, ...extra }, 400);
+const badRequest = (msg = "Bad Request") => json({ error: msg }, { status: 400 });
+const unauthorized = (msg = "Unauthorized") => json({ error: msg }, { status: 401 });
+const forbidden = (msg = "Forbidden") => json({ error: msg }, { status: 403 });
 
-export const unauthorized = (message = "Unauthorized", extra = {}) =>
-  json({ error: message, ...extra }, 401);
-
-export const forbidden = (message = "Forbidden", extra = {}) =>
-  json({ error: message, ...extra }, 403);
-
-function getBearerToken(request) {
-  const h = request.headers.get("authorization") || "";
+const getBearer = (req) => {
+  const h = req.headers.get("authorization") || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
-}
+};
 
-function requiredEnv(env, key) {
-  const v = env?.[key];
-  if (!v) throw new Error(`Missing env var: ${key}`);
-  return v;
-}
+const nowIso = () => new Date().toISOString();
+const uid = () => crypto.randomUUID();
 
-async function verifyAccessToken(token, env) {
-  const issuer = requiredEnv(env, "AUTH0_ISSUER");     // https://xxxxx.auth0.com/
-  const audience = requiredEnv(env, "AUTH0_AUDIENCE"); // https://task-manager-user/api
+const lower = (s) => (s || "").toString().trim().toLowerCase();
+
+async function verifyAccessToken(env, token) {
+  const issuer = env.AUTH0_ISSUER; // e.g. https://taskmanager.ca.auth0.com/
+  const audience = env.AUTH0_AUDIENCE; // e.g. https://task-manager-user/api
+
+  if (!issuer || !audience) throw new Error("Missing AUTH0_ISSUER/AUTH0_AUDIENCE");
+
   const jwks = createRemoteJWKSet(new URL(`${issuer}.well-known/jwks.json`));
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer,
+    audience,
+  });
 
-  const { payload } = await jwtVerify(token, jwks, { issuer, audience });
   return payload;
 }
 
-/**
- * getUser() returns:
- * { sub, email, name, tenantId, role, orgId, orgName }
- *
- * If Auth0 Organizations is used, tenantId will be org_id (and we auto-upsert tenant + member).
- */
-export async function getUser(request, env) {
-  const token = getBearerToken(request);
-  if (!token) return null;
+async function getTenantMembership(env, { userId, email }) {
+  // ✅ lookup by userId OR email (email may be absent in access token)
+  const row = await env.DB.prepare(
+    `SELECT tenantId, role
+     FROM tenant_members
+     WHERE userId = ?
+        OR (email IS NOT NULL AND lower(email) = lower(?))
+     LIMIT 1`
+  )
+    .bind(userId, email || "")
+    .first();
 
-  let payload;
-  try {
-    payload = await verifyAccessToken(token, env);
-  } catch {
-    return null;
+  return row || null;
+}
+
+async function ensureTenantAndMembershipForOrg(env, { orgId, orgName, userId, email, name }) {
+  // Create tenant if missing (id = orgId)
+  const existingTenant = await env.DB.prepare(`SELECT id FROM tenants WHERE id = ? LIMIT 1`)
+    .bind(orgId)
+    .first();
+
+  if (!existingTenant?.id) {
+    await env.DB.prepare(`INSERT INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`)
+      .bind(orgId, orgName || orgId, nowIso())
+      .run();
   }
 
-  const sub = (payload.sub || "").toString();
+  // Ensure membership row exists
+  const member = await env.DB.prepare(
+    `SELECT id, role FROM tenant_members
+     WHERE tenantId = ? AND (userId = ? OR (email IS NOT NULL AND lower(email)=lower(?)))
+     LIMIT 1`
+  )
+    .bind(orgId, userId, email || "")
+    .first();
 
-  // email may not exist on access tokens depending on your Auth0 config
-  const email =
-    (payload.email ||
-      payload["https://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] ||
-      "").toString();
-
-  const name = (payload.name || payload.nickname || email || "User").toString();
-
-  // ✅ Auth0 Organizations
-  const orgId = (payload.org_id || "").toString();
-  const orgName = (payload.org_name || "").toString(); // sometimes present; ok if empty
-
-  // If org is present, treat it as the tenantId
-  if (orgId && env.DB) {
-    const now = new Date().toISOString();
-
-    // Ensure tenant exists
+  if (!member?.id) {
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`
-    )
-      .bind(orgId, orgName || "Workspace", now)
-      .run();
-
-    // Ensure membership exists (deterministic id so it doesn't duplicate)
-    const memberId = `${orgId}:${sub}`;
-
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO tenant_members (id, tenantId, userId, email, name, role, createdAt)
+      `INSERT INTO tenant_members (id, tenantId, userId, email, name, role, createdAt)
        VALUES (?, ?, ?, ?, ?, 'member', ?)`
     )
-      .bind(memberId, orgId, sub, email, name, now)
+      .bind(uid(), orgId, userId, email || "", name || "", nowIso())
       .run();
+  }
 
-    // Fetch role (admin/owner/member)
-    const member = await env.DB.prepare(
-      `SELECT tenantId, role FROM tenant_members
-       WHERE tenantId = ? AND (userId = ? OR (email != '' AND lower(email) = lower(?)))
-       LIMIT 1`
-    )
-      .bind(orgId, sub, email)
-      .first();
+  return member?.role || "member";
+}
 
-    return {
-      sub,
-      email,
-      name,
-      tenantId: member?.tenantId || orgId,
-      role: member?.role || "member",
+async function getUser(context) {
+  const token = getBearer(context.request);
+  if (!token) return null;
+
+  const payload = await verifyAccessToken(context.env, token);
+
+  const userId = payload.sub;
+  const email = payload.email || payload["https://example.com/email"] || null; // optional
+  const name = payload.name || payload.nickname || email || userId;
+
+  // ✅ Organizations
+  const orgId = payload.org_id || null;
+  const orgName = payload.org_name || null;
+
+  // If org present → tenancy comes from org
+  if (orgId) {
+    const role = await ensureTenantAndMembershipForOrg(context.env, {
       orgId,
       orgName,
-      claims: payload,
-    };
-  }
-
-  // Fallback (non-org mode): look up membership by email only
-  if (env.DB && email) {
-    const row = await env.DB.prepare(
-      `SELECT tenantId, role
-       FROM tenant_members
-       WHERE lower(email)=lower(?)
-       LIMIT 1`
-    )
-      .bind(email)
-      .first();
-
-    return {
-      sub,
+      userId,
       email,
       name,
-      tenantId: row?.tenantId || null,
-      role: row?.role || null,
-      orgId: null,
-      orgName: null,
-      claims: payload,
-    };
+    });
+
+    return { userId, email, name, tenantId: orgId, role, orgId, orgName };
   }
 
-  return { sub, email, name, tenantId: null, role: null, orgId: null, orgName: null, claims: payload };
+  // Otherwise → tenancy comes from D1 membership
+  const membership = await getTenantMembership(context.env, { userId, email });
+  if (!membership?.tenantId) return { userId, email, name, tenantId: null, role: null, orgId, orgName };
+
+  return { userId, email, name, tenantId: membership.tenantId, role: membership.role, orgId, orgName };
 }
 
-/**
- * requireAuth(context OR request+env)
- * opts.allowNoTenant = true lets bootstrap work for first-time users.
- */
-export async function requireAuth(contextOrRequest, maybeEnv, opts = {}) {
-  const request = contextOrRequest?.request ?? contextOrRequest;
-  const env = contextOrRequest?.env ?? maybeEnv;
+const requireAuth = async (context) => {
+  const user = await getUser(context);
+  if (!user) return { ok: false, res: unauthorized(), user: null };
 
-  const user = await getUser(request, env);
-  if (!user) return { ok: false, res: unauthorized() };
+  // If no tenant, treat as 403 (your UI expects this)
+  if (!user.tenantId) return { ok: false, res: forbidden("No tenant assigned to this user yet."), user };
 
-  if (!opts.allowNoTenant && !user.tenantId) {
-    return { ok: false, res: forbidden("No tenant assigned to this user yet.") };
-  }
+  return { ok: true, res: null, user };
+};
 
-  return { ok: true, user };
-}
+export {
+  json,
+  badRequest,
+  unauthorized,
+  forbidden,
+  getUser,
+  requireAuth,
+};

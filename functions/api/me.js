@@ -1,7 +1,7 @@
-import { getUser, json, unauthorized } from "./_auth";
+import { getUser, unauthorized } from "./_auth";
 
-export async function onRequestGet(context) {
+export async function onRequest(context) {
   const user = await getUser(context.request, context.env);
   if (!user) return unauthorized();
-  return json({ email: user.email, name: user.name, sub: user.sub });
+  return Response.json({ ok: true, user });
 }
