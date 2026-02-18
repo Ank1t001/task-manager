@@ -36,7 +36,7 @@ export default function TaskTable({
   setOwnerFilter,
 
   onDelete,
-  onEdit, // ✅ new
+  onEdit, // âœ… new
 
   canEditAny,
   canEditTask,
@@ -99,7 +99,7 @@ export default function TaskTable({
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
-              <tr style={{ position: "sticky", top: 0, zIndex: 2, backdropFilter: "blur(10px)", background: "rgba(255,255,255,0.22)" }}>
+              <tr>
                 <Th style={{ width: 260 }}>Task</Th>
                 <Th style={{ width: 360 }}>Description</Th>
                 <Th style={{ width: 140 }}>Owner</Th>
@@ -124,19 +124,19 @@ export default function TaskTable({
 
                     <Td>
                       <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: "18px", maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {t.description || <span className="dtt-muted">—</span>}
+                        {t.description || <span className="dtt-muted">â€”</span>}
                       </div>
                     </Td>
 
                     <Td><span style={pillBase()}>{t.owner}</span></Td>
                     <Td><span style={pillBase()}>{t.section}</span></Td>
                     <Td><span style={{ ...pillBase(), ...priorityStyle(t.priority) }}>{t.priority}</span></Td>
-                    <Td><span style={pillBase()}>{t.dueDate || "—"}</span></Td>
+                    <Td><span style={pillBase()}>{t.dueDate || "â€”"}</span></Td>
                     <Td><span style={pillBase()}>{t.status}</span></Td>
 
                     <Td>
                       <div style={{ color: "var(--muted)", fontSize: 13, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {t.externalStakeholders || <span className="dtt-muted">—</span>}
+                        {t.externalStakeholders || <span className="dtt-muted">â€”</span>}
                       </div>
                     </Td>
 
@@ -182,18 +182,7 @@ export default function TaskTable({
 
 function Th({ children, style }) {
   return (
-    <th
-      style={{
-        textAlign: "left",
-        padding: "12px 12px",
-        fontSize: 12,
-        fontWeight: 1000,
-        color: "rgba(15,23,42,0.75)",
-        borderBottom: "1px solid var(--border)",
-        whiteSpace: "nowrap",
-        ...style,
-      }}
-    >
+    <th className="dtt-th" style={style}>
       {children}
     </th>
   );

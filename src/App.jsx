@@ -23,7 +23,8 @@ export default function App() {
 
   const [tasks, setTasks] = useState([]);
   const [apiError, setApiError] = useState("");
-  const [viewMode, setViewMode] = useState("table"); // "table" | "kanban"
+  const [viewMode, setViewMode] = useState("table");
+  const [theme, setTheme] = useState("dark");
 
   const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
   const organization = import.meta.env.VITE_AUTH0_ORG_ID;
@@ -32,47 +33,34 @@ export default function App() {
 
   const apiBase = useMemo(() => "/api", []);
 
+  // Apply theme to root element
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
   async function getToken() {
-    // ✅ Always request token scoped to org (otherwise membership checks break)
     return await getAccessTokenSilently({
-      authorizationParams: {
-        audience,
-        organization,
-        scope: "openid profile email",
-      },
+      authorizationParams: { audience, organization, scope: "openid profile email" },
     });
   }
 
   async function fetchJSON(path) {
     const token = await getToken();
     const res = await fetch(`${apiBase}${path}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
-
     const contentType = res.headers.get("content-type") || "";
-
-    // If Worker throws exception, Cloudflare sends HTML. Show readable error.
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(
-        `API Error: ${res.status} :: ${
-          contentType.includes("application/json") ? text : text.slice(0, 800)
-        }`
-      );
+      throw new Error(`API Error: ${res.status} :: ${contentType.includes("application/json") ? text : text.slice(0, 800)}`);
     }
-
     if (contentType.includes("application/json")) return await res.json();
     return await res.text();
   }
 
   async function loadTasks() {
     setApiError("");
-    if (!isAuthenticated) {
-      setTasks([]);
-      return;
-    }
+    if (!isAuthenticated) { setTasks([]); return; }
     try {
       const data = await fetchJSON("/tasks");
       setTasks(data?.tasks || []);
@@ -88,91 +76,161 @@ export default function App() {
   }, [isLoading, isAuthenticated]);
 
   async function handleLogin() {
-    // ✅ This is the missing piece that prevents “refresh only” behavior
     await loginWithRedirect({
-      authorizationParams: {
-        audience,
-        organization,
-        redirect_uri: redirectUri,
-        scope: "openid profile email",
-      },
+      authorizationParams: { audience, organization, redirect_uri: redirectUri, scope: "openid profile email" },
     });
   }
 
   function handleLogout() {
-    logout({
-      logoutParams: { returnTo: window.location.origin },
-    });
+    logout({ logoutParams: { returnTo: window.location.origin } });
   }
 
+  const userInitial = (user?.name || user?.email || "?")[0].toUpperCase();
+
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" }}>
-      <div
-        style={{
-          maxWidth: 1100,
-          margin: "0 auto",
-          background: "#fff",
-          borderRadius: 16,
-          padding: 24,
-          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <h1 style={{ margin: 0, opacity: 0.9 }}>Digital Team Task Tracker</h1>
-            <div style={{ marginTop: 8, color: "#444" }}>
-              Signed in:{" "}
-              <b>{isAuthenticated ? user?.email || user?.name : "Not signed in"}</b>
+    <div className="dtt-page">
+      <div className="dtt-shell">
+
+        {/* ── HEADER ── */}
+        <header className="dtt-card" style={{ padding: "16px 22px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+
+            {/* Brand */}
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                background: "linear-gradient(135deg, #4d7cff 0%, #a855f7 100%)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 20, boxShadow: "0 4px 16px rgba(77,124,255,0.45)",
+              }}>📋</div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 17, letterSpacing: "-0.3px", lineHeight: 1.15 }}>
+                  Digital Team Task Tracker
+                </div>
+                {isAuthenticated && (
+                  <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 2 }}>
+                    {user?.email || user?.name}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                className="dtt-iconBtn"
+                title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+                onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}
+                style={{ fontSize: 16 }}
+              >
+                {theme === "dark" ? "☀️" : "🌙"}
+              </button>
+
+              {isAuthenticated && (
+                <button className="dtt-btn" onClick={loadTasks}
+                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "8px 14px" }}>
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>↻</span> Refresh
+                </button>
+              )}
+
+              {!isAuthenticated ? (
+                <button className="dtt-btnPrimary" onClick={handleLogin}
+                  style={{ padding: "10px 20px", fontWeight: 900 }}>
+                  Sign In
+                </button>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 34, height: 34, borderRadius: 999,
+                    background: "linear-gradient(135deg, #4d7cff, #a855f7)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontWeight: 900, fontSize: 14, color: "#fff", flexShrink: 0,
+                  }}>
+                    {userInitial}
+                  </div>
+                  <button className="dtt-btn" onClick={handleLogout} style={{ fontSize: 13 }}>
+                    Sign Out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
+        </header>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {!isAuthenticated ? (
-              <button onClick={handleLogin}>Login</button>
-            ) : (
-              <button onClick={handleLogout}>Logout</button>
-            )}
-            <button onClick={loadTasks} disabled={!isAuthenticated}>
-              Refresh
+        {/* ── ERROR ── */}
+        {apiError && (
+          <div style={{
+            padding: "14px 18px", borderRadius: 14,
+            background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.40)",
+            color: "#fca5a5", fontSize: 13, whiteSpace: "pre-wrap",
+          }}>
+            ⚠️ {apiError}
+          </div>
+        )}
+
+        {/* ── NOT AUTH ── */}
+        {!isAuthenticated && !isLoading && (
+          <div className="dtt-card" style={{ textAlign: "center", padding: "56px 24px" }}>
+            <div style={{ fontSize: 44, marginBottom: 18 }}>🔒</div>
+            <div style={{ fontWeight: 900, fontSize: 22, marginBottom: 10 }}>Welcome back</div>
+            <div style={{ color: "var(--muted)", marginBottom: 28, fontSize: 14 }}>
+              Sign in to access your team's tasks and projects.
+            </div>
+            <button className="dtt-btnPrimary" onClick={handleLogin}
+              style={{ padding: "12px 32px", fontWeight: 900, fontSize: 15, borderRadius: 14 }}>
+              Sign In
             </button>
           </div>
-        </div>
+        )}
 
-        {apiError ? (
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              borderRadius: 12,
-              background: "#ffecec",
-              color: "#7a0000",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {apiError}
+        {/* ── LOADING ── */}
+        {isLoading && (
+          <div className="dtt-card" style={{ textAlign: "center", padding: "40px 24px", color: "var(--muted)" }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
+            Loading…
           </div>
-        ) : null}
+        )}
 
-        <div style={{ marginTop: 16 }}>
-          <MiniDashboard tasks={tasks} />
-        </div>
+        {/* ── MAIN ── */}
+        {isAuthenticated && !isLoading && (
+          <>
+            {/* Stats */}
+            <MiniDashboard tasks={tasks} />
 
-        <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
-          <button onClick={() => setViewMode("table")}>Table</button>
-          <button onClick={() => setViewMode("kanban")}>Kanban</button>
-        </div>
+            {/* View switcher */}
+            <div className="dtt-card" style={{ padding: "10px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="dtt-tabs">
+                  <button
+                    className={`dtt-tab${viewMode === "table" ? " dtt-tabActive" : ""}`}
+                    onClick={() => setViewMode("table")}
+                    style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span>⊞</span> Table
+                  </button>
+                  <button
+                    className={`dtt-tab${viewMode === "kanban" ? " dtt-tabActive" : ""}`}
+                    onClick={() => setViewMode("kanban")}
+                    style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span style={{ letterSpacing: 2 }}>⋮⋮⋮</span> Kanban
+                  </button>
+                </div>
+                <div style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
+                  {tasks.length} task{tasks.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+            </div>
 
-        <div style={{ marginTop: 16 }}>
-          {viewMode === "kanban" ? (
-            <KanbanBoard tasks={tasks} />
-          ) : (
-            <TaskTable tasks={tasks} />
-          )}
-        </div>
+            {/* Content */}
+            {viewMode === "kanban" ? (
+              <KanbanBoard tasks={tasks} />
+            ) : (
+              <TaskTable tasks={tasks} />
+            )}
+          </>
+        )}
 
-        {!isAuthenticated ? (
-          <div style={{ marginTop: 16, color: "#666" }}>Login to load tasks.</div>
-        ) : null}
       </div>
     </div>
   );
