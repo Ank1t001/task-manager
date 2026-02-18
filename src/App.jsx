@@ -116,31 +116,15 @@ export default function App() {
   useEffect(() => { if (!isLoading) { loadTasks(); loadProjects(); } }, [isLoading, isAuthenticated]);
 
   // ── task CRUD ──
-  // Map form fields to API field names
-  function toApiPayload(formData) {
-    return {
-      title:                formData.taskName,
-      description:          formData.description,
-      status:               formData.status,
-      priority:             formData.priority,
-      owner:                formData.owner,
-      dueDate:              formData.dueDate,
-      project:              formData.projectName,
-      stage:                formData.stage,
-      type:                 formData.section,
-      stakeholder:          formData.externalStakeholders,
-    };
-  }
-
   async function handleCreateTask(formData) {
     try {
-      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(toApiPayload(formData)) });
+      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) });
       setShowTaskForm(false); setEditingTask(null); await loadTasks();
     } catch (e) { alert("Create failed: " + e.message); }
   }
   async function handleEditTask(formData) {
     try {
-      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(toApiPayload(formData)) });
+      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) });
       setShowTaskForm(false); setEditingTask(null); await loadTasks();
     } catch (e) { alert("Update failed: " + e.message); }
   }
