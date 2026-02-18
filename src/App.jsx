@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
@@ -12,114 +13,72 @@ export default function App() {
   } = useAuth0();
 
   const [tasks, setTasks] = useState([]);
+  const [me, setMe] = useState(null);
   const [error, setError] = useState("");
-
-  const organization = import.meta.env.VITE_AUTH0_ORG_ID;
-  const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
-
-  const signedInLabel = isLoading
-    ? "Loading..."
-    : isAuthenticated
-    ? user?.email || user?.name || "Signed in"
-    : "Not signed in";
 
   const taskCount = tasks.length;
 
-  const btnGhost = {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.12)",
-    background: "white",
-    cursor: "pointer",
-    fontWeight: 600,
+  const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
+  const orgId = import.meta.env.VITE_AUTH0_ORG_ID;
+
+  const apiFetch = async (path, opts = {}) => {
+    const token = await getAccessTokenSilently({
+      authorizationParams: {
+        audience,
+        ...(orgId ? { organization: orgId } : {}),
+      },
+    });
+
+    const res = await fetch(path, {
+      ...opts,
+      headers: {
+        "content-type": "application/json",
+        ...(opts.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText} :: ${txt}`);
+    }
+    return res.json();
   };
 
-  const btnPrimary = {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.12)",
-    background: "#111827",
-    color: "white",
-    cursor: "pointer",
-    fontWeight: 700,
+  const loadAll = async () => {
+    setError("");
+    try {
+      const [meRes, tasksRes] = await Promise.all([
+        apiFetch("/api/me"),
+        apiFetch("/api/tasks"),
+      ]);
+      setMe(meRes);
+      setTasks(tasksRes || []);
+    } catch (e) {
+      setError(String(e.message || e));
+      setMe(null);
+      setTasks([]);
+    }
   };
 
-  const pill = {
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "rgba(17,24,39,0.06)",
-    fontWeight: 700,
-    color: "#111827",
-  };
-
-  const errorBox = {
-    marginTop: 14,
-    background: "#fff1f1",
-    border: "1px solid #ffc7c7",
-    color: "#7a2f2f",
-    padding: 14,
-    borderRadius: 12,
-    fontWeight: 600,
-    lineHeight: 1.4,
-    whiteSpace: "pre-wrap",
-  };
-
-  // ---- Fetch tasks after login ----
   useEffect(() => {
-    const load = async () => {
+    if (isAuthenticated) loadAll();
+    else {
+      setMe(null);
+      setTasks([]);
       setError("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
-      if (!isAuthenticated) {
-        setTasks([]);
-        return;
-      }
-
-      try {
-        const token = await getAccessTokenSilently({
-          authorizationParams: {
-            audience,
-            organization, // ✅ ensures token is scoped to org
-          },
-        });
-
-        const res = await fetch("/api/tasks", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`${res.status} :: ${text}`);
-        }
-
-        const data = await res.json();
-        setTasks(Array.isArray(data?.tasks) ? data.tasks : Array.isArray(data) ? data : []);
-      } catch (e) {
-        setTasks([]);
-        setError(String(e?.message || e));
-      }
-    };
-
-    load();
-  }, [isAuthenticated, getAccessTokenSilently, audience, organization]);
-
-  const stats = useMemo(() => {
-    const total = tasks.length;
-    const overdue = tasks.filter((t) => t.status === "overdue").length;
-    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
-    const done = tasks.filter((t) => t.status === "done").length;
-    return { total, overdue, inProgress, done };
-  }, [tasks]);
+  const signedInLabel = useMemo(() => {
+    if (isLoading) return "Loading…";
+    if (!isAuthenticated) return "Not signed in";
+    return me?.email || user?.email || "Signed in";
+  }, [isLoading, isAuthenticated, me, user]);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        padding: 28,
-        background: "linear-gradient(180deg, #f6f7fb 0%, #eef1f7 100%)",
-      }}
-    >
+    <div style={{ minHeight: "100vh", background: "#f4f6fb", padding: 24 }}>
       <div
         style={{
           maxWidth: 1100,
@@ -130,14 +89,7 @@ export default function App() {
           padding: 22,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: -0.5 }}>
               Digital Team Task Tracker
@@ -150,20 +102,15 @@ export default function App() {
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {!isAuthenticated ? (
               <button
-                type="button" // ✅ prevents page refresh submit behavior
-                style={btnPrimary}
-                disabled={isLoading}
-                onClick={async () => {
-                  await loginWithRedirect({
+                type="button"
+                onClick={() =>
+                  loginWithRedirect({
                     authorizationParams: {
-                      organization: import.meta.env.VITE_AUTH0_ORG_ID,
-                      audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-                      redirect_uri:
-                        import.meta.env.VITE_AUTH0_REDIRECT_URI ||
-                        window.location.origin,
+                      ...(orgId ? { organization: orgId } : {}),
                     },
-                  });
-                }}
+                  })
+                }
+                style={btnPrimary}
               >
                 Login
               </button>
@@ -193,103 +140,138 @@ export default function App() {
           <div style={errorBox}>
             <b>API Error:</b> {error}
             <div style={{ marginTop: 8, color: "#7a2f2f" }}>
-              If you see <code>401</code>, token/cookie isn’t present. If you see
-              <code> 403</code> with tenant/org message, membership isn’t mapped yet.
+              If you see <code>401</code>, token/cookie isn’t present. If you see <code>403</code>, tenant/org mapping isn’t set yet.
             </div>
           </div>
         ) : null}
 
-        <div style={{ display: "flex", gap: 12, marginTop: 18 }}>
-          <StatCard title="Total Tasks" value={stats.total} />
-          <StatCard title="Overdue" value={stats.overdue} />
-          <StatCard title="In Progress" value={stats.inProgress} />
-          <StatCard title="Done" value={stats.done} />
-        </div>
-
         <div style={{ marginTop: 18 }}>
-          <div style={{ fontWeight: 800, marginBottom: 10 }}>Tasks</div>
-          <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 14, overflow: "hidden" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr",
-                background: "rgba(17,24,39,0.03)",
-                padding: 12,
-                fontWeight: 800,
-                color: "#445066",
-                fontSize: 13,
-              }}
-            >
-              <div>Task</div>
-              <div>Owner</div>
-              <div>Priority</div>
-              <div>Status</div>
-              <div>Due</div>
-              <div>Project</div>
-              <div>Stage</div>
+          {!isAuthenticated ? (
+            <div style={{ padding: 18, borderRadius: 14, background: "#f7f9ff", border: "1px solid #e6ecff" }}>
+              Login to load tasks.
             </div>
-
-            {tasks.length === 0 ? (
-              <div style={{ padding: 16, color: "#6b7280" }}>
-                {isAuthenticated ? "No tasks found for your tenant." : "Login to load tasks."}
-              </div>
-            ) : (
-              tasks.map((t) => (
-                <div
-                  key={t.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 1fr",
-                    padding: 12,
-                    borderTop: "1px solid rgba(0,0,0,0.06)",
-                    fontSize: 13,
-                    color: "#111827",
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{t.title || t.task || "-"}</div>
-                  <div>{t.owner || "-"}</div>
-                  <div>{t.priority || "-"}</div>
-                  <div>{t.status || "-"}</div>
-                  <div>{t.due || "-"}</div>
-                  <div>{t.project || "-"}</div>
-                  <div>{t.stage || "-"}</div>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                <div style={tile("#6b7cff")}>
+                  <div style={tileTitle}>Total Tasks</div>
+                  <div style={tileNum}>{taskCount}</div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
+                <div style={tile("#ff6b6b")}>
+                  <div style={tileTitle}>Overdue</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "Overdue").length}</div>
+                </div>
+                <div style={tile("#ffb84d")}>
+                  <div style={tileTitle}>In Progress</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "In Progress").length}</div>
+                </div>
+                <div style={tile("#3ddc84")}>
+                  <div style={tileTitle}>Done</div>
+                  <div style={tileNum}>{tasks.filter((t) => t.status === "Done").length}</div>
+                </div>
+              </div>
 
-        <div style={{ marginTop: 14 }}>
-          <button
-            type="button"
-            style={btnGhost}
-            onClick={() => window.location.reload()}
-          >
-            Refresh
-          </button>
+              <div style={{ overflowX: "auto", border: "1px solid #eef1f7", borderRadius: 14 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead style={{ background: "#f7f9ff" }}>
+                    <tr>
+                      {["Task", "Owner", "Priority", "Status", "Due", "Project", "Stage"].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            padding: "12px 14px",
+                            fontSize: 13,
+                            color: "#546077",
+                            borderBottom: "1px solid #eef1f7",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((t) => (
+                      <tr key={t.id} style={{ borderBottom: "1px solid #f0f2f7" }}>
+                        <td style={td}><b>{t.taskName}</b></td>
+                        <td style={td}>{t.owner || "—"}</td>
+                        <td style={td}>{t.priority || "—"}</td>
+                        <td style={td}>{t.status || "—"}</td>
+                        <td style={td}>{t.dueDate || "—"}</td>
+                        <td style={td}>{t.projectName || "—"}</td>
+                        <td style={td}>{t.stage || "—"}</td>
+                      </tr>
+                    ))}
+                    {!tasks.length ? (
+                      <tr>
+                        <td style={{ padding: 16, color: "#7a859c" }} colSpan={7}>
+                          No tasks found for your tenant.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+                <button type="button" style={btnGhost} onClick={loadAll}>
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ title, value }) {
-  const box = {
-    flex: 1,
-    borderRadius: 16,
-    border: "2px solid rgba(17,24,39,0.08)",
-    padding: 14,
-    background: "white",
-    minHeight: 84,
-  };
+const btnPrimary = {
+  border: "0",
+  background: "#365cff",
+  color: "white",
+  padding: "10px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
 
-  const h = { fontWeight: 900, color: "#111827" };
-  const v = { fontSize: 30, fontWeight: 900, marginTop: 6, color: "#111827", opacity: 0.2 };
+const btnGhost = {
+  border: "1px solid #dbe2f0",
+  background: "white",
+  color: "#182033",
+  padding: "10px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
 
-  return (
-    <div style={box}>
-      <div style={h}>{title}</div>
-      <div style={v}>{value}</div>
-    </div>
-  );
-}
+const pill = {
+  padding: "10px 14px",
+  borderRadius: 999,
+  background: "#f4f6fb",
+  border: "1px solid #e6ebf7",
+  fontWeight: 800,
+};
+
+const errorBox = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 14,
+  background: "#fff3f3",
+  border: "1px solid #ffd1d1",
+  color: "#7a2f2f",
+};
+
+const tile = (borderColor) => ({
+  flex: 1,
+  padding: 16,
+  borderRadius: 16,
+  background: "linear-gradient(135deg, rgba(255,255,255,1), rgba(245,248,255,1))",
+  border: `2px solid ${borderColor}`,
+});
+
+const tileTitle = { fontWeight: 800, color: "#2a3550", marginBottom: 6 };
+const tileNum = { fontSize: 34, fontWeight: 900, color: "#111827" };
+const td = { padding: "12px 14px", fontSize: 14 };
