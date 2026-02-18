@@ -49,6 +49,8 @@ export async function onRequestPost(context) {
     section = "",
     stakeholder = "",
     externalStakeholders = "",
+    assignedTo = "",
+    assignedToEmail = "",
   } = body || {};
 
   // Accept either field name
@@ -67,14 +69,16 @@ export async function onRequestPost(context) {
     `INSERT INTO tasks (
       id, tenantId, taskName, description, status, priority,
       owner, ownerEmail, dueDate, projectName, stage, type, externalStakeholders,
+      assignedTo, assignedToEmail,
       sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     taskId, tenant.tenantId,
     resolvedTaskName, description, status, priority,
     owner, resolvedOwnerEmail,
     dueDate || null, resolvedProject, stage,
     resolvedType, resolvedStakeholder,
+    assignedTo.trim(), assignedToEmail.trim().toLowerCase(),
     0, now, now
   ).run();
 
@@ -118,6 +122,8 @@ export async function onRequestPut(context) {
     section:              "type",
     stakeholder:          "externalStakeholders",
     externalStakeholders: "externalStakeholders",
+    assignedTo:           "assignedTo",
+    assignedToEmail:      "assignedToEmail",
     sortOrder:            "sortOrder",
   };
 

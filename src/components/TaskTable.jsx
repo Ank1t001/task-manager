@@ -69,6 +69,7 @@ export default function TaskTable({
                 <Th style={{ width: 120 }}>Priority</Th>
                 <Th style={{ width: 120 }}>Due</Th>
                 <Th style={{ width: 130 }}>Status</Th>
+                <Th style={{ width: 140 }}>Assigned To</Th>
                 {hasStages && <Th style={{ width: 200 }}>Stage Progress</Th>}
                 <Th style={{ width: 180, textAlign: "right" }}>Actions</Th>
               </tr>
@@ -95,6 +96,14 @@ export default function TaskTable({
                       <Td><span style={{ ...pillBase(), ...priorityStyle(t.priority) }}>{t.priority}</span></Td>
                       <Td><span style={pillBase()}>{t.dueDate || "—"}</span></Td>
                       <Td><span style={pillBase()}>{t.status}</span></Td>
+                      <Td>
+                        {t.assignedTo ? (
+                          <div>
+                            <div style={{ fontWeight: 900, fontSize: 12 }}>👤 {t.assignedTo}</div>
+                            {t.assignedToEmail && <div style={{ fontSize: 11, color: "var(--muted)" }}>{t.assignedToEmail}</div>}
+                          </div>
+                        ) : <span style={{ color: "var(--muted)", fontSize: 12 }}>—</span>}
+                      </Td>
 
                       {hasStages && (
                         <Td>

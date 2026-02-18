@@ -335,6 +335,11 @@ function TaskCard({ task, overlay = false }) {
         <span style={{ ...pill, borderColor: pri.border, background: pri.bg }}>{pri.label}</span>
         {task.dueDate && <span style={pill}>{task.dueDate}</span>}
         <span style={{ ...pill, background: "transparent", fontSize: 10 }}>{dot.label}</span>
+        {task.assignedTo && (
+          <span style={{ ...pill, borderColor: "rgba(77,124,255,0.5)", background: "rgba(77,124,255,0.12)", color: "#93c5fd" }}>
+            👤 {task.assignedTo}
+          </span>
+        )}
       </div>
     </div>
   );

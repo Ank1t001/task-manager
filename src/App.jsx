@@ -101,6 +101,8 @@ export default function App() {
         projectName:          t.project     || t.projectName || "",
         section:              t.type        || t.section || "",
         externalStakeholders: t.stakeholder || t.externalStakeholders || "",
+        assignedTo:           t.assignedTo  || "",
+        assignedToEmail:      t.assignedToEmail || "",
       }));
       setTasks(tasks);
     }
