@@ -1,4 +1,3 @@
-// functions/api/stages.js
 import { requireAuth, json, badRequest, forbidden } from "./_auth";
 
 export async function onRequestGet(context) {
@@ -12,8 +11,7 @@ export async function onRequestGet(context) {
   const db = context.env.DB;
   const rows = await db
     .prepare(`SELECT stageName, sortOrder, stageOwnerEmail FROM project_stages WHERE projectName = ? ORDER BY sortOrder ASC`)
-    .bind(projectName)
-    .all();
+    .bind(projectName).all();
 
   return json({ projectName, stages: rows.results || [] });
 }
@@ -50,14 +48,10 @@ export async function onRequestPost(context) {
   if (clean.length === 0) return badRequest("No valid stages");
 
   await db.prepare(`DELETE FROM project_stages WHERE projectName = ?`).bind(projectName).run();
-
   const createdAt = new Date().toISOString();
   for (let i = 0; i < clean.length; i++) {
-    await db
-      .prepare(`INSERT INTO project_stages (id, projectName, stageName, sortOrder, stageOwnerEmail, createdAt) VALUES (?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), projectName, clean[i].stageName, (i + 1) * 10, clean[i].stageOwnerEmail || "", createdAt)
-      .run();
+    await db.prepare(`INSERT INTO project_stages (id, projectName, stageName, sortOrder, stageOwnerEmail, createdAt) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), projectName, clean[i].stageName, (i + 1) * 10, clean[i].stageOwnerEmail || "", createdAt).run();
   }
-
   return json({ ok: true, projectName, stages: clean });
 }
