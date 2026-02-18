@@ -31,17 +31,17 @@ export default function App() {
   const [tasks, setTasks]         = useState([]);
   const [projects, setProjects]   = useState([]);
   const [apiError, setApiError]   = useState("");
-  const [activeTab, setActiveTab] = useState("tasks");   // "tasks" | "projects"
-  const [viewMode, setViewMode]   = useState("table");   // "table" | "kanban"
+  const [activeTab, setActiveTab] = useState("tasks");
+  const [viewMode, setViewMode]   = useState("table");
   const [theme, setTheme]         = useState("dark");
 
   // ── task modal ──
-  const [showTaskForm, setShowTaskForm]   = useState(false);
-  const [editingTask, setEditingTask]     = useState(null);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [editingTask, setEditingTask]   = useState(null);
 
   // ── project modal ──
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [editingProject, setEditingProject]   = useState(null); // null=create, obj=edit
+  const [editingProject, setEditingProject]   = useState(null);
   const [projName, setProjName]               = useState("");
   const [projOwnerName, setProjOwnerName]     = useState("");
   const [projOwnerEmail, setProjOwnerEmail]   = useState("");
@@ -69,13 +69,20 @@ export default function App() {
 
   // ── auth helpers ──
   async function getToken() {
-    return getAccessTokenSilently({ authorizationParams: { audience, organization, scope: "openid profile email" } });
+    return getAccessTokenSilently({
+      authorizationParams: { audience, organization, scope: "openid profile email" },
+    });
   }
+
   async function fetchJSON(path, opts = {}) {
     const token = await getToken();
     const res = await fetch(`${apiBase}${path}`, {
       ...opts,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(opts.headers || {}) },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
     });
     const ct = res.headers.get("content-type") || "";
     if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t.slice(0, 400)}`); }
@@ -100,12 +107,16 @@ export default function App() {
 
   // ── task CRUD ──
   async function handleCreateTask(formData) {
-    try { await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) }); setShowTaskForm(false); setEditingTask(null); await loadTasks(); }
-    catch (e) { alert("Create failed: " + e.message); }
+    try {
+      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) });
+      setShowTaskForm(false); setEditingTask(null); await loadTasks();
+    } catch (e) { alert("Create failed: " + e.message); }
   }
   async function handleEditTask(formData) {
-    try { await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) }); setShowTaskForm(false); setEditingTask(null); await loadTasks(); }
-    catch (e) { alert("Update failed: " + e.message); }
+    try {
+      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) });
+      setShowTaskForm(false); setEditingTask(null); await loadTasks();
+    } catch (e) { alert("Update failed: " + e.message); }
   }
   async function handleDeleteTask(taskId) {
     if (!confirm("Delete this task? This cannot be undone.")) return;
@@ -189,6 +200,7 @@ export default function App() {
             onProjectChanged={() => { loadProjects(); setOpenProject(null); }}
             onEditTask={(t) => { setEditingTask(t); setShowTaskForm(true); }}
             onCreateTaskInStage={(opts) => { setEditingTask({ projectName: opts.projectName, stage: opts.stage }); setShowTaskForm(true); }}
+            getToken={getToken}
           />
         </div>
       </div>
@@ -363,7 +375,6 @@ export default function App() {
           title={editingProject ? "Edit Project" : "New Project"}
           subtitle={editingProject ? `Editing: ${editingProject.name}` : "Create a new project for your team"}>
           <div style={{ display: "grid", gap: 14 }}>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ display: "grid", gap: 8 }}>
                 <label style={{ fontWeight: 900, fontSize: 13 }}>Project Name *</label>
@@ -431,13 +442,14 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
     const needle = q.trim().toLowerCase();
     if (!needle) return projects;
     return projects.filter(p =>
-      p.name?.toLowerCase().includes(needle) || p.ownerEmail?.toLowerCase().includes(needle) || p.ownerName?.toLowerCase().includes(needle)
+      p.name?.toLowerCase().includes(needle) ||
+      p.ownerEmail?.toLowerCase().includes(needle) ||
+      p.ownerName?.toLowerCase().includes(needle)
     );
   }, [projects, q]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {/* Search bar */}
       <div className="dtt-card" style={{ padding: 14 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input className="dtt-input" placeholder="Search projects…" value={q} onChange={e => setQ(e.target.value)} style={{ maxWidth: 340 }} />
@@ -457,16 +469,12 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
           {filtered.map(p => (
             <div key={p.name} className="dtt-card"
               style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-
-              {/* Icon */}
               <div style={{
                 width: 42, height: 42, borderRadius: 12, flexShrink: 0,
                 background: "linear-gradient(135deg, rgba(77,124,255,0.30), rgba(168,85,247,0.30))",
                 border: "1px solid rgba(77,124,255,0.35)",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
               }}>📁</div>
-
-              {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 900, fontSize: 15 }}>{p.name}</div>
                 <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 3 }}>
@@ -475,17 +483,11 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
                   {Number(p.archived) === 1 ? <span className="dtt-pill" style={{ marginLeft: 8 }}>Archived</span> : null}
                 </div>
               </div>
-
-              {/* Actions */}
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button className="dtt-btn" onClick={() => onOpen(p)}
-                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                  Open →
-                </button>
+                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>Open →</button>
                 <button className="dtt-btn" onClick={() => onEdit(p)}
-                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                  ✏️ Edit
-                </button>
+                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>✏️ Edit</button>
                 <button onClick={() => onDelete(p)}
                   style={{ borderRadius: 12, padding: "8px 12px", border: "1px solid rgba(239,68,68,0.40)", background: "rgba(239,68,68,0.10)", color: "#fca5a5", cursor: "pointer", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                   🗑️ Delete
