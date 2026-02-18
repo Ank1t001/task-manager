@@ -1,22 +1,13 @@
-// functions/api/_auth.js
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 /**
- * Shared helpers for Cloudflare Pages Functions
- * - Validates Auth0 JWT (RS256) using your tenant's JWKS
- * - Maps user -> tenant using D1 table tenant_members
- * - Exposes requireAuth(context) wrapper used by other handlers
+ * Small JSON helpers
  */
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
-  "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-};
-
 export function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
-  headers.set("Content-Type", "application/json; charset=utf-8");
-  for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json; charset=utf-8");
+  }
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
@@ -32,174 +23,153 @@ export function forbidden(message = "Forbidden", extra = {}) {
   return json({ error: message, ...extra }, { status: 403 });
 }
 
-function base64UrlToUint8Array(b64url) {
-  const pad = "=".repeat((4 - (b64url.length % 4)) % 4);
-  const b64 = (b64url + pad).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(b64);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  return bytes;
-}
-
-function decodeJwt(token) {
-  const [h, p] = token.split(".");
-  if (!h || !p) throw new Error("Invalid JWT");
-  const header = JSON.parse(new TextDecoder().decode(base64UrlToUint8Array(h)));
-  const payload = JSON.parse(new TextDecoder().decode(base64UrlToUint8Array(p)));
-  return { header, payload };
-}
-
-async function importRsaPublicKeyFromJwk(jwk) {
-  return crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
-}
-
-async function getJwks(env) {
-  const domain = env.AUTH0_DOMAIN;
-  if (!domain) throw new Error("Missing AUTH0_DOMAIN");
-  const url = `https://${domain}/.well-known/jwks.json`;
-
-  const res = await fetch(url, { cf: { cacheTtl: 3600, cacheEverything: true } });
-  if (!res.ok) throw new Error(`Failed to fetch JWKS: ${res.status}`);
-  return res.json();
-}
-
-async function verifyJwtRs256(token, env) {
-  const { header, payload } = decodeJwt(token);
-
-  const issuer = env.AUTH0_ISSUER;
-  const audience = env.AUTH0_AUDIENCE;
-
-  if (!issuer) throw new Error("Missing AUTH0_ISSUER");
-  if (!audience) throw new Error("Missing AUTH0_AUDIENCE");
-
-  // Basic claim checks
-  if (payload.iss !== issuer) throw new Error("Invalid issuer");
-  const audOk = Array.isArray(payload.aud) ? payload.aud.includes(audience) : payload.aud === audience;
-  if (!audOk) throw new Error("Invalid audience");
-
-  const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && now >= payload.exp) throw new Error("Token expired");
-
-  // Signature verify
-  const jwks = await getJwks(env);
-  const jwk = jwks.keys.find((k) => k.kid === header.kid);
-  if (!jwk) throw new Error("Signing key not found");
-
-  const key = await importRsaPublicKeyFromJwk(jwk);
-
-  const [h, p, s] = token.split(".");
-  const data = new TextEncoder().encode(`${h}.${p}`);
-  const sig = base64UrlToUint8Array(s);
-
-  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, data);
-  if (!ok) throw new Error("Invalid signature");
-
-  return payload;
-}
-
+/**
+ * Read Bearer token
+ */
 function getBearerToken(request) {
-  const auth = request.headers.get("authorization") || request.headers.get("Authorization");
-  if (!auth) return null;
+  const auth = request?.headers?.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
 }
 
 /**
- * Returns:
- * {
- *   userId, email, name, sub, orgId,
- *   tenantId, role
- * }
+ * Verify Auth0 access token using JWKS (jose)
  */
-export async function getUser(request, env) {
-  const token = getBearerToken(request);
+async function verifyAccessToken(token, env) {
+  const issuer = env.AUTH0_ISSUER || `https://${env.AUTH0_DOMAIN}/`;
+  const audience = env.AUTH0_AUDIENCE;
+
+  if (!audience) throw new Error("Missing AUTH0_AUDIENCE env var");
+  if (!issuer) throw new Error("Missing AUTH0_ISSUER/AUTH0_DOMAIN env var");
+
+  const jwksUrl = new URL(".well-known/jwks.json", issuer);
+  const JWKS = createRemoteJWKSet(jwksUrl);
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer,
+    audience,
+  });
+
+  return payload;
+}
+
+/**
+ * Returns user claims or null if not logged in (no token)
+ */
+export async function getUser(context) {
+  // Important: Pages Functions always passes a single 'context' arg
+  const req = context?.request;
+  if (!req) throw new Error("getUser(): context.request is missing");
+
+  const token = getBearerToken(req);
   if (!token) return null;
 
-  const claims = await verifyJwtRs256(token, env);
-
-  const userId = claims.sub;
-  const email = claims.email || null;
-  const name = claims.name || claims.nickname || null;
-
-  // org claim key varies; include a few common places:
-  const orgId =
-    claims.org_id ||
-    claims.organization ||
-    claims["https://taskmanager.ca/org_id"] ||
-    claims["https://task-manager-user/api/org_id"] ||
-    null;
-
-  // Map user -> tenant via D1
-  if (!env.DB) {
-    // Helpful error (you hit this earlier)
-    throw new Error("Server misconfigured: missing D1 binding (env.DB). Add [[d1_databases]] binding=\"DB\" in wrangler.toml.");
-  }
-
-  const member = await env.DB.prepare(
-    `SELECT tenantId, role FROM tenant_members
-     WHERE userId = ?
-        OR (email IS NOT NULL AND email = ?)
-     LIMIT 1`
-  )
-    .bind(userId, email)
-    .first();
+  const payload = await verifyAccessToken(token, context.env);
 
   return {
-    userId,
-    email,
-    name,
-    sub: userId,
-    orgId,
-    tenantId: member?.tenantId || null,
-    role: member?.role || null,
+    sub: payload.sub,
+    // Access tokens often don't include email unless you added it via Action / custom claims
+    email: payload.email || payload["https://task-manager/email"] || null,
+    name: payload.name || payload.nickname || null,
+    org_id: payload.org_id || null,
+    org_name: payload.org_name || null,
+    // keep full payload if you want to debug later
+    claims: payload,
   };
 }
 
 /**
- * Standard guard for Pages Functions.
- * Usage:
- *   const auth = await requireAuth(context);
- *   if (!auth.ok) return auth.res;
- *   const user = auth.user;
+ * requireAuth(context)
+ * - validates Bearer token
+ * - optionally enforces org_id (if env.VITE_AUTH0_ORG_ID exists)
+ * - resolves tenant membership from D1
+ * - returns { user, tenant } OR a Response (401/403)
  */
 export async function requireAuth(context) {
-  const request = context?.request;
-  const env = context?.env;
-
-  if (!request) return { ok: false, res: unauthorized("Missing request context") };
-  if (!env) return { ok: false, res: unauthorized("Missing env context") };
-
+  let user;
   try {
-    const user = await getUser(request, env);
-    if (!user) return { ok: false, res: unauthorized("Unauthorized") };
-
-    if (!user.tenantId) {
-      return {
-        ok: false,
-        res: forbidden("No tenant assigned to this user yet.", {
-          hint: "Ensure the user exists in tenant_members with matching userId (Auth0 sub) or email.",
-          userId: user.userId,
-          email: user.email,
-        }),
-      };
-    }
-
-    return { ok: true, user };
+    user = await getUser(context);
   } catch (e) {
-    return {
-      ok: false,
-      res: json({ error: "Auth error", message: e?.message || String(e) }, { status: 500 }),
-    };
+    // token malformed / jwt verify failed / missing config
+    return unauthorized("Unauthorized", { detail: String(e?.message || e) });
   }
-}
 
-// Preflight support
-export const onRequestOptions = async () => {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
-};
+  if (!user) return unauthorized("Unauthorized");
+
+  const { env } = context;
+
+  // Optional: enforce org_id if you set VITE_AUTH0_ORG_ID in wrangler.toml vars
+  const requiredOrgId = env.VITE_AUTH0_ORG_ID || null;
+  if (requiredOrgId) {
+    if (!user.org_id) {
+      return forbidden("No organization found on token. Ensure org login is enabled.", {
+        requiredOrgId,
+      });
+    }
+    if (user.org_id !== requiredOrgId) {
+      return forbidden("Organization mismatch.", {
+        requiredOrgId,
+        tokenOrgId: user.org_id,
+      });
+    }
+  }
+
+  if (!env.DB) {
+    return new Response(
+      "Server misconfigured: missing D1 binding (env.DB). Add [[d1_databases]] binding=\"DB\" in wrangler.toml.",
+      { status: 500 }
+    );
+  }
+
+  // Find membership by userId first, then email fallback (if token includes email)
+  const userId = user.sub;
+  const email = user.email;
+
+  let member = null;
+
+  if (userId) {
+    member = await env.DB.prepare(
+      `SELECT tenantId, role, email, name
+       FROM tenant_members
+       WHERE userId = ?
+       LIMIT 1`
+    )
+      .bind(userId)
+      .first();
+  }
+
+  if (!member && email) {
+    member = await env.DB.prepare(
+      `SELECT tenantId, role, email, name
+       FROM tenant_members
+       WHERE lower(email) = lower(?)
+       LIMIT 1`
+    )
+      .bind(email)
+      .first();
+  }
+
+  if (!member) {
+    return forbidden("No tenant assigned to this user yet.", {
+      hint: "Ensure the user exists in tenant_members with matching userId (Auth0 sub) or email.",
+      userId,
+      email,
+    });
+  }
+
+  const tenantRow = await env.DB.prepare(
+    `SELECT id, name FROM tenants WHERE id = ? LIMIT 1`
+  )
+    .bind(member.tenantId)
+    .first();
+
+  const tenant = {
+    tenantId: member.tenantId,
+    tenantName: tenantRow?.name || member.tenantId,
+    role: member.role || "member",
+    memberEmail: member.email || null,
+    memberName: member.name || null,
+  };
+
+  return { user, tenant };
+}

@@ -1,53 +1,24 @@
-// functions/api/bootstrap.js
-import { requireAuth, json, badRequest } from "./_auth";
-import { nowIso, uid, writeAudit } from "./_activity";
+import { requireAuth, json } from "./_auth";
 
-export const onRequestPost = async (context) => {
+export async function onRequestGet(context) {
   const auth = await requireAuth(context);
-  if (!auth.ok) return auth.res;
+  if (auth instanceof Response) return auth;
 
-  const { userId, email, name } = auth.user;
+  const { user, tenant } = auth;
 
-  const body = await context.request.json().catch(() => ({}));
-  const requestedName = (body?.name || "My Workspace").toString().trim();
-  if (!requestedName) return badRequest("Missing tenant name");
-
-  // 1) Already member?
-  const existing = await context.env.DB.prepare(
-    `SELECT tenantId, role FROM tenant_members WHERE userId = ? LIMIT 1`
-  )
-    .bind(userId)
-    .first();
-
-  if (existing?.tenantId) {
-    return json({ tenantId: existing.tenantId, role: existing.role, created: false });
-  }
-
-  // 2) Create tenant + membership (owner)
-  const tenantId = uid();
-  const memberId = uid();
-
-  await context.env.DB.batch([
-    context.env.DB.prepare(`INSERT INTO tenants (id, name, createdAt) VALUES (?, ?, ?)`).bind(
-      tenantId,
-      requestedName,
-      nowIso()
-    ),
-    context.env.DB.prepare(
-      `INSERT INTO tenant_members (id, tenantId, userId, email, name, role, createdAt)
-       VALUES (?, ?, ?, ?, ?, 'owner', ?)`
-    ).bind(memberId, tenantId, userId, email, name, nowIso()),
-  ]);
-
-  await writeAudit(context.env, {
-    id: uid(),
-    tenantId,
-    actorUserId: userId,
-    actorEmail: email,
-    action: "tenant.bootstrap",
-    payload: JSON.stringify({ name: requestedName }),
-    createdAt: nowIso(),
+  return json({
+    ok: true,
+    user: {
+      sub: user.sub,
+      email: user.email,
+      name: user.name,
+      org_id: user.org_id,
+      org_name: user.org_name,
+    },
+    tenant: {
+      id: tenant.tenantId,
+      name: tenant.tenantName,
+      role: tenant.role,
+    },
   });
-
-  return json({ tenantId, role: "owner", created: true });
-};
+}
