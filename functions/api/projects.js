@@ -1,5 +1,5 @@
 // functions/api/projects.js
-import { getUser, json, badRequest, unauthorized, forbidden } from "./_auth";
+import { requireAuth, json, badRequest, unauthorized, forbidden } from "./_auth";
 
 const isoNow = () => new Date().toISOString();
 const norm = (v = "") => String(v).trim().toLowerCase();
@@ -12,15 +12,16 @@ function parseArchivedParam(v) {
 }
 
 export async function onRequestGet(context) {
-  const user = getUser(context);
-  if (!user.email) return unauthorized();
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { user, tenant } = auth;
 
   const url = new URL(context.request.url);
   const archived = parseArchivedParam(url.searchParams.get("archived"));
   const db = context.env.DB;
+  const isAdmin = tenant.role === "admin";
 
-  // Admin
-  if (user.isAdmin) {
+  if (isAdmin) {
     const sql =
       archived === "all"
         ? `SELECT name, ownerName, ownerEmail, createdAt, updatedAt, archived
@@ -39,7 +40,7 @@ export async function onRequestGet(context) {
     return json({ projects: rows.results || [] });
   }
 
-  // Member: show only projects they can see tasks for (assigned OR stage owner)
+  // Member: show only projects they can see tasks for
   const baseSql = `
     SELECT DISTINCT p.name, p.ownerName, p.ownerEmail, p.createdAt, p.updatedAt, p.archived
     FROM projects p
@@ -74,14 +75,13 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPost(context) {
-  const user = getUser(context);
-  if (!user.email) return unauthorized();
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { user, tenant } = auth;
 
-  // Admin only create (recommended)
-  if (!user.isAdmin) return forbidden("Only admin can create projects");
+  if (tenant.role !== "admin") return forbidden("Only admin can create projects");
 
   const body = await context.request.json().catch(() => null);
-
   const name = String(body?.name || "").trim();
   const ownerEmail = norm(body?.ownerEmail || user.email);
   const ownerName = String(body?.ownerName || user.name || "").trim() || ownerEmail.split("@")[0];
@@ -92,7 +92,6 @@ export async function onRequestPost(context) {
   const db = context.env.DB;
   const now = isoNow();
 
-  // 1) create project row
   await db
     .prepare(
       `INSERT INTO projects (id, name, ownerName, ownerEmail, createdAt, updatedAt, archived)
@@ -101,8 +100,6 @@ export async function onRequestPost(context) {
     .bind(crypto.randomUUID(), name, ownerName, ownerEmail, now, now)
     .run();
 
-  // 2) optional: create custom stages at project creation
-  // stages: ["Copy","Creative"] OR [{stageName, stageOwnerEmail}]
   const stagesIn = Array.isArray(body?.stages) ? body.stages : [];
   if (stagesIn.length) {
     const clean = [];
@@ -133,14 +130,7 @@ export async function onRequestPost(context) {
           `INSERT INTO project_stages (id, projectName, stageName, sortOrder, stageOwnerEmail, createdAt)
            VALUES (?, ?, ?, ?, ?, ?)`
         )
-        .bind(
-          crypto.randomUUID(),
-          name,
-          clean[i].stageName,
-          (i + 1) * 10,
-          clean[i].stageOwnerEmail || "",
-          now
-        )
+        .bind(crypto.randomUUID(), name, clean[i].stageName, (i + 1) * 10, clean[i].stageOwnerEmail || "", now)
         .run();
     }
   }
@@ -149,8 +139,9 @@ export async function onRequestPost(context) {
 }
 
 export async function onRequestPut(context) {
-  const user = getUser(context);
-  if (!user.email) return unauthorized();
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { user, tenant } = auth;
 
   const body = await context.request.json().catch(() => null);
   const name = String(body?.name || "").trim();
@@ -167,46 +158,52 @@ export async function onRequestPut(context) {
 
   const me = norm(user.email);
   const owner = norm(proj.ownerEmail);
-
-  // Admin OR current owner
-  const canManage = user.isAdmin || (me && owner && me === owner);
+  const isAdmin = tenant.role === "admin";
+  const canManage = isAdmin || (me && owner && me === owner);
   if (!canManage) return forbidden("Only admin or project owner can update project");
 
   const updates = [];
   const binds = [];
 
-  // Transfer ownership
   if (body?.ownerEmail != null) {
     const nextOwnerEmail = norm(body.ownerEmail);
     if (!nextOwnerEmail) return badRequest("ownerEmail cannot be empty");
     const nextOwnerName = String(body?.ownerName || "").trim() || nextOwnerEmail.split("@")[0];
-
     if (nextOwnerEmail !== owner) {
-      updates.push("ownerEmail = ?");
-      binds.push(nextOwnerEmail);
-      updates.push("ownerName = ?");
-      binds.push(nextOwnerName);
+      updates.push("ownerEmail = ?"); binds.push(nextOwnerEmail);
+      updates.push("ownerName = ?");  binds.push(nextOwnerName);
     }
   }
 
-  // Archive / unarchive
   if (body?.archived != null) {
     const a = Number(body.archived);
     if (a !== 0 && a !== 1) return badRequest("archived must be 0 or 1");
-    updates.push("archived = ?");
-    binds.push(a);
+    updates.push("archived = ?"); binds.push(a);
   }
 
   if (updates.length === 0) return json({ ok: true, name, unchanged: true });
 
-  updates.push("updatedAt = ?");
-  binds.push(isoNow());
+  updates.push("updatedAt = ?"); binds.push(isoNow());
   binds.push(name);
 
-  await db
-    .prepare(`UPDATE projects SET ${updates.join(", ")} WHERE name = ?`)
-    .bind(...binds)
-    .run();
+  await db.prepare(`UPDATE projects SET ${updates.join(", ")} WHERE name = ?`).bind(...binds).run();
+  return json({ ok: true, name });
+}
+
+export async function onRequestDelete(context) {
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { tenant } = auth;
+
+  if (tenant.role !== "admin") return forbidden("Only admin can delete projects");
+
+  const body = await context.request.json().catch(() => null);
+  const name = String(body?.name || "").trim();
+  if (!name) return badRequest("name is required");
+
+  const db = context.env.DB;
+  await db.prepare(`DELETE FROM project_stages WHERE projectName = ?`).bind(name).run();
+  await db.prepare(`DELETE FROM projects WHERE name = ?`).bind(name).run();
 
   return json({ ok: true, name });
 }
