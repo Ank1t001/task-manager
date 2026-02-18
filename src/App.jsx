@@ -2,9 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
-import MiniDashboard from "./MiniDashboard.jsx";
-import TaskTable from "./TaskTable.jsx";
-import KanbanBoard from "./KanbanBoard.jsx";
+import MiniDashboard from "./components/MiniDashboard.jsx";
+import TaskTable from "./components/TaskTable.jsx";
+import KanbanBoard from "./components/KanbanBoard.jsx";
 
 export default function App() {
   const {
