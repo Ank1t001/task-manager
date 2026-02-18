@@ -1,23 +1,17 @@
+// functions/api/me.js
 import { requireAuth, json } from "./_auth";
 
-export async function onRequestGet(context) {
+export const onRequestGet = async (context) => {
   const auth = await requireAuth(context);
-  if (auth instanceof Response) return auth;
+  if (!auth.ok) return auth.res;
 
-  const { user, tenant } = auth;
-
+  const u = auth.user;
   return json({
-    user: {
-      sub: user.sub,
-      email: user.email,
-      name: user.name,
-      org_id: user.org_id,
-      org_name: user.org_name,
-    },
-    tenant: {
-      id: tenant.tenantId,
-      name: tenant.tenantName,
-      role: tenant.role,
-    },
+    userId: u.userId,
+    email: u.email,
+    name: u.name,
+    orgId: u.orgId,
+    tenantId: u.tenantId,
+    role: u.role,
   });
-}
+};

@@ -2,8 +2,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
-import MiniDashboard from "./components/MiniDashboard.jsx";
+import TaskForm from "./components/TaskForm.jsx";
 import TaskTable from "./components/TaskTable.jsx";
+import StageEditor from "./components/StageEditor.jsx";
+import ProjectView from "./components/ProjectView.jsx";
+import Projects from "./components/Projects.jsx";
+import Modal from "./components/Modal.jsx";
+import MiniDashboard from "./components/MiniDashboard.jsx";
 import KanbanBoard from "./components/KanbanBoard.jsx";
 
 export default function App() {

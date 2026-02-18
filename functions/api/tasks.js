@@ -1,176 +1,159 @@
-import { requireAuth, json, badRequest, forbidden } from "./_auth";
+// functions/api/tasks.js
+import { requireAuth, json, badRequest } from "./_auth";
 
-export async function onRequestGet(context) {
+/**
+ * Expected schema fields (typical):
+ * - tasks(id, tenantId, title, description, status, priority, owner, due, project, stage, stakeholders, createdAt, updatedAt)
+ */
+
+export const onRequestGet = async (context) => {
   const auth = await requireAuth(context);
-  if (auth instanceof Response) return auth;
+  if (!auth.ok) return auth.res;
 
-  const { env } = context;
-  const { tenant } = auth;
+  const { tenantId } = auth.user;
 
-  const rows = await env.DB.prepare(
+  const rows = await context.env.DB.prepare(
     `SELECT *
      FROM tasks
      WHERE tenantId = ?
-     ORDER BY sortOrder ASC, createdAt DESC`
+     ORDER BY
+       CASE status
+         WHEN 'Overdue' THEN 1
+         WHEN 'In Progress' THEN 2
+         WHEN 'Done' THEN 3
+         ELSE 4
+       END,
+       due IS NULL,
+       due ASC,
+       updatedAt DESC`
   )
-    .bind(tenant.tenantId)
+    .bind(tenantId)
     .all();
 
   return json({ tasks: rows.results || [] });
-}
+};
 
-export async function onRequestPost(context) {
+export const onRequestPost = async (context) => {
   const auth = await requireAuth(context);
-  if (auth instanceof Response) return auth;
+  if (!auth.ok) return auth.res;
 
-  const { env, request } = context;
-  const { tenant } = auth;
+  const { tenantId, email } = auth.user;
+  const body = await context.request.json().catch(() => null);
+  if (!body?.title) return badRequest("Missing title");
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return badRequest("Invalid JSON body");
-  }
-
-  const {
-    id,
-    title,
-    description = "",
-    status = "todo",
-    priority = "medium",
-    owner = "",
-    dueDate = null,
-    project = "",
-    stage = "",
-    type = "",
-    stakeholder = "",
-  } = body || {};
-
-  if (!title) return badRequest("title is required");
-
-  const taskId = id || crypto.randomUUID();
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  await env.DB.prepare(
-    `INSERT INTO tasks (
-      id, tenantId, title, description, status, priority,
-      owner, dueDate, project, stage, type, stakeholder,
-      sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  const task = {
+    id,
+    tenantId,
+    title: String(body.title || "").trim(),
+    description: String(body.description || "").trim(),
+    status: body.status || "In Progress",
+    priority: body.priority || "Medium",
+    owner: body.owner || email || "",
+    due: body.due || null,
+    project: body.project || "",
+    stage: body.stage || "",
+    stakeholders: body.stakeholders || "",
+    createdAt: now,
+    updatedAt: now,
+    type: body.type || "",
+  };
+
+  await context.env.DB.prepare(
+    `INSERT INTO tasks
+      (id, tenantId, title, description, status, priority, owner, due, project, stage, stakeholders, createdAt, updatedAt, type)
+     VALUES
+      (?,  ?,       ?,     ?,          ?,      ?,        ?,     ?,   ?,       ?,     ?,            ?,         ?,        ?)`
   )
     .bind(
-      taskId,
-      tenant.tenantId,
-      title,
-      description,
-      status,
-      priority,
-      owner,
-      dueDate,
-      project,
-      stage,
-      type,
-      stakeholder,
-      0,
-      now,
-      now
+      task.id,
+      task.tenantId,
+      task.title,
+      task.description,
+      task.status,
+      task.priority,
+      task.owner,
+      task.due,
+      task.project,
+      task.stage,
+      task.stakeholders,
+      task.createdAt,
+      task.updatedAt,
+      task.type
     )
     .run();
 
-  return json({ ok: true, id: taskId });
-}
+  return json({ task });
+};
 
-export async function onRequestPut(context) {
+export const onRequestPatch = async (context) => {
   const auth = await requireAuth(context);
-  if (auth instanceof Response) return auth;
+  if (!auth.ok) return auth.res;
 
-  const { env, request } = context;
-  const { tenant } = auth;
+  const { tenantId } = auth.user;
+  const id = context.params?.id;
+  if (!id) return badRequest("Missing task id");
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return badRequest("Invalid JSON body");
-  }
-
-  const { id, ...patch } = body || {};
-  if (!id) return badRequest("id is required");
-
-  // Basic guard: ensure task belongs to tenant
-  const existing = await env.DB.prepare(
-    `SELECT id, tenantId FROM tasks WHERE id = ? LIMIT 1`
-  )
-    .bind(id)
-    .first();
-
-  if (!existing) return badRequest("Task not found");
-  if (existing.tenantId !== tenant.tenantId) return forbidden("Wrong tenant");
+  const body = await context.request.json().catch(() => null);
+  if (!body) return badRequest("Missing body");
 
   const now = new Date().toISOString();
 
-  // Build dynamic update
-  const allowed = [
+  // Only update known fields
+  const fields = [
     "title",
     "description",
     "status",
     "priority",
     "owner",
-    "dueDate",
+    "due",
     "project",
     "stage",
+    "stakeholders",
     "type",
-    "stakeholder",
-    "sortOrder",
   ];
 
-  const fields = [];
+  const updates = [];
   const values = [];
 
-  for (const k of allowed) {
-    if (k in patch) {
-      fields.push(`${k} = ?`);
-      values.push(patch[k]);
+  for (const f of fields) {
+    if (f in body) {
+      updates.push(`${f} = ?`);
+      values.push(body[f]);
     }
   }
 
-  fields.push(`updatedAt = ?`);
+  updates.push(`updatedAt = ?`);
   values.push(now);
 
-  if (fields.length === 1) return badRequest("No updatable fields provided");
+  if (updates.length === 1) return badRequest("No valid fields to update");
 
-  values.push(id);
-
-  await env.DB.prepare(
-    `UPDATE tasks SET ${fields.join(", ")} WHERE id = ?`
+  await context.env.DB.prepare(
+    `UPDATE tasks
+     SET ${updates.join(", ")}
+     WHERE id = ? AND tenantId = ?`
   )
-    .bind(...values)
+    .bind(...values, id, tenantId)
     .run();
 
-  return json({ ok: true });
-}
-
-export async function onRequestDelete(context) {
-  const auth = await requireAuth(context);
-  if (auth instanceof Response) return auth;
-
-  const { env, request } = context;
-  const { tenant } = auth;
-
-  const url = new URL(request.url);
-  const id = url.searchParams.get("id");
-  if (!id) return badRequest("id query param required");
-
-  const existing = await env.DB.prepare(
-    `SELECT id, tenantId FROM tasks WHERE id = ? LIMIT 1`
-  )
-    .bind(id)
+  const updated = await context.env.DB.prepare(`SELECT * FROM tasks WHERE id = ? AND tenantId = ?`)
+    .bind(id, tenantId)
     .first();
 
-  if (!existing) return json({ ok: true }); // idempotent delete
-  if (existing.tenantId !== tenant.tenantId) return forbidden("Wrong tenant");
+  return json({ task: updated });
+};
 
-  await env.DB.prepare(`DELETE FROM tasks WHERE id = ?`).bind(id).run();
+export const onRequestDelete = async (context) => {
+  const auth = await requireAuth(context);
+  if (!auth.ok) return auth.res;
+
+  const { tenantId } = auth.user;
+  const id = context.params?.id;
+  if (!id) return badRequest("Missing task id");
+
+  await context.env.DB.prepare(`DELETE FROM tasks WHERE id = ? AND tenantId = ?`).bind(id, tenantId).run();
+
   return json({ ok: true });
-}
+};
