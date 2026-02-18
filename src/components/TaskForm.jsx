@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { OWNER_OPTIONS } from "../config/owners";
 import { SECTION_OPTIONS } from "../config/sections";
-import TaskAttachments from "./TaskAttachments";
 
 const STATUS_OPTIONS   = ["To Do", "In Progress", "Done"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
@@ -271,7 +270,6 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
       {/* ── Attachments (edit mode only) ── */}
       {isEdit && initialTask?.id && (
         <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(255,255,255,0.03)" }}>
-          <TaskAttachments taskId={initialTask.id} getToken={getToken} />
         </div>
       )}
       {!isEdit && (
