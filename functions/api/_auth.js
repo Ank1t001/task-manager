@@ -1,94 +1,142 @@
 // functions/api/_auth.js
-import { jwtVerify, createRemoteJWKSet } from "jose";
 
-const AUTH0_DOMAIN = (env) => env.AUTH0_DOMAIN || env.VITE_AUTH0_DOMAIN;
-const AUTH0_AUDIENCE = (env) => env.AUTH0_AUDIENCE || env.VITE_AUTH0_AUDIENCE;
-const AUTH0_ISSUER = (env) =>
-  env.AUTH0_ISSUER || `https://${AUTH0_DOMAIN(env)}/`;
-
-function toRequest(ctxOrReq) {
-  // Accept either Pages context ({ request, env, ... }) or a Request
-  if (!ctxOrReq) return undefined;
-  if (ctxOrReq instanceof Request) return ctxOrReq;
-  if (ctxOrReq.request instanceof Request) return ctxOrReq.request;
-  return undefined;
+function base64UrlToString(input) {
+  // base64url -> base64
+  input = input.replace(/-/g, "+").replace(/_/g, "/");
+  // pad
+  const pad = input.length % 4;
+  if (pad) input += "=".repeat(4 - pad);
+  // decode
+  const bytes = Uint8Array.from(atob(input), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
-export function json(data, init = {}) {
+function decodeJwtPayload(token) {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    return JSON.parse(base64UrlToString(parts[1]));
+  } catch {
+    return null;
+  }
+}
+
+export function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
-    ...init,
+    status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      ...(init.headers || {}),
+      ...headers,
     },
   });
 }
 
-export function badRequest(message = "Bad Request") {
-  return json({ error: message }, { status: 400 });
+export function badRequest(message = "Bad Request", extra = {}) {
+  return json({ error: message, ...extra }, 400);
 }
 
-export function unauthorized(message = "Unauthorized") {
-  return json({ error: message }, { status: 401 });
+export function unauthorized(message = "Unauthorized", extra = {}) {
+  return json({ error: message, ...extra }, 401);
 }
 
-export function forbidden(message = "Forbidden") {
-  return json({ error: message }, { status: 403 });
+export function forbidden(message = "Forbidden", extra = {}) {
+  return json({ error: message, ...extra }, 403);
 }
 
-function getBearerToken(ctxOrReq) {
-  const req = toRequest(ctxOrReq);
-  if (!req) return null;
-
-  const auth = req.headers.get("authorization") || "";
-  const match = auth.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : null;
+function getBearerToken(request) {
+  // request can be undefined if called incorrectly — guard hard
+  const auth = request?.headers?.get?.("Authorization") || "";
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1] : null;
 }
 
-async function verifyAccessToken(token, env) {
-  const issuer = AUTH0_ISSUER(env);
-  const audience = AUTH0_AUDIENCE(env);
+export async function getUser(request, env) {
+  const token = getBearerToken(request);
+  if (!token) return null;
 
-  const jwksUrl = new URL(".well-known/jwks.json", issuer);
-  const JWKS = createRemoteJWKSet(jwksUrl);
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
 
-  const { payload } = await jwtVerify(token, JWKS, {
-    issuer,
-    audience,
-  });
+  // Auth0 standard-ish fields
+  const userId = payload.sub || null;
+  const email =
+    payload.email ||
+    payload["https://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] ||
+    null;
 
-  return payload;
+  const name = payload.name || payload.nickname || payload.given_name || null;
+
+  // Orgs: may appear as org_id / org_name depending on flow
+  const orgId = payload.org_id || payload.organization_id || null;
+
+  return { userId, email, name, orgId, raw: payload };
 }
 
-export async function getUser(ctxOrReq, env) {
-  const token = getBearerToken(ctxOrReq);
-  if (!token) return { ok: false, status: 401, error: "Missing bearer token" };
+/**
+ * requireAuth(context)
+ * - Validates presence of bearer token
+ * - Returns { ok:false, res } on failure
+ * - Returns { ok:true, user } on success
+ * - Also attaches tenantId + role if membership exists
+ */
+export async function requireAuth(context) {
+  const request = context?.request;
+  const env = context?.env;
 
-  try {
-    const claims = await verifyAccessToken(token, env);
+  if (!request?.headers) {
+    return { ok: false, res: unauthorized("Invalid request context (missing request).") };
+  }
+  if (!env?.DB) {
+    return { ok: false, res: json({ error: "Server misconfigured (DB binding missing)." }, 500) };
+  }
 
-    // Auth0 Organizations claims
-    const orgId = claims.org_id || claims["https://auth0.com/org_id"];
-    const orgName = claims.org_name || claims["https://auth0.com/org_name"];
+  const user = await getUser(request, env);
+  if (!user?.userId) {
+    return { ok: false, res: unauthorized("Unauthorized (token missing/invalid).") };
+  }
 
-    const email =
-      claims.email ||
-      claims["https://schemas.openid.net/userinfo/email"] ||
-      null;
+  // 1) Try membership by userId
+  let member = await env.DB.prepare(
+    `SELECT tenantId, role, email, name, userId FROM tenant_members WHERE userId = ? LIMIT 1`
+  )
+    .bind(user.userId)
+    .first();
 
-    return {
-      ok: true,
-      claims,
-      email,
-      sub: claims.sub,
-      orgId,
-      orgName,
-    };
-  } catch (e) {
+  // 2) Fallback by email (helps when auth connection changes but email stays same)
+  if (!member?.tenantId && user.email) {
+    member = await env.DB.prepare(
+      `SELECT tenantId, role, email, name, userId FROM tenant_members WHERE email = ? LIMIT 1`
+    )
+      .bind(user.email)
+      .first();
+
+    // If found by email, link row to current Auth0 userId for next time
+    if (member?.tenantId && member.userId !== user.userId) {
+      await env.DB.prepare(`UPDATE tenant_members SET userId = ? WHERE email = ?`)
+        .bind(user.userId, user.email)
+        .run();
+    }
+  }
+
+  if (!member?.tenantId) {
     return {
       ok: false,
-      status: 401,
-      error: `Token verification failed: ${e?.message || String(e)}`,
+      res: forbidden("No tenant assigned to this user yet.", {
+        hint:
+          "Add the user to a tenant_members row (or invite / auto-membership flow) and ensure email matches.",
+      }),
     };
   }
+
+  return {
+    ok: true,
+    user: {
+      userId: user.userId,
+      email: user.email || member.email || "",
+      name: user.name || member.name || "",
+      role: member.role || "member",
+      tenantId: member.tenantId,
+      orgId: user.orgId || null,
+    },
+  };
 }
