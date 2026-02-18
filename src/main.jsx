@@ -9,13 +9,19 @@ import "./theme.css";
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
-const orgId = import.meta.env.VITE_AUTH0_ORG_ID;
+const organization = import.meta.env.VITE_AUTH0_ORG_ID;
 
 const redirectUri =
   import.meta.env.VITE_AUTH0_REDIRECT_URI || `${window.location.origin}/`;
 
 if (!domain || !clientId || !audience) {
-  console.warn("Missing Auth0 env vars:", { domain, clientId, audience, redirectUri, orgId });
+  console.warn("Missing Auth0 env vars:", {
+    domain,
+    clientId,
+    audience,
+    organization,
+    redirectUri,
+  });
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -26,8 +32,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       authorizationParams={{
         redirect_uri: redirectUri,
         audience,
+        organization, // ✅ IMPORTANT for Auth0 Organizations
         scope: "openid profile email offline_access",
-        ...(orgId ? { organization: orgId } : {}),
       }}
       cacheLocation="localstorage"
       useRefreshTokens
