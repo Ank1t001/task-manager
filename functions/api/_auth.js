@@ -1,142 +1,175 @@
-// functions/api/_auth.js
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
-function base64UrlToString(input) {
-  // base64url -> base64
-  input = input.replace(/-/g, "+").replace(/_/g, "/");
-  // pad
-  const pad = input.length % 4;
-  if (pad) input += "=".repeat(4 - pad);
-  // decode
-  const bytes = Uint8Array.from(atob(input), (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-function decodeJwtPayload(token) {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  try {
-    return JSON.parse(base64UrlToString(parts[1]));
-  } catch {
-    return null;
+/**
+ * Small JSON helpers
+ */
+export function json(data, init = {}) {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json; charset=utf-8");
   }
-}
-
-export function json(data, status = 200, headers = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...headers,
-    },
-  });
+  return new Response(JSON.stringify(data), { ...init, headers });
 }
 
 export function badRequest(message = "Bad Request", extra = {}) {
-  return json({ error: message, ...extra }, 400);
+  return json({ error: message, ...extra }, { status: 400 });
 }
 
 export function unauthorized(message = "Unauthorized", extra = {}) {
-  return json({ error: message, ...extra }, 401);
+  return json({ error: message, ...extra }, { status: 401 });
 }
 
 export function forbidden(message = "Forbidden", extra = {}) {
-  return json({ error: message, ...extra }, 403);
+  return json({ error: message, ...extra }, { status: 403 });
 }
 
+/**
+ * Read Bearer token
+ */
 function getBearerToken(request) {
-  // request can be undefined if called incorrectly — guard hard
-  const auth = request?.headers?.get?.("Authorization") || "";
+  const auth = request?.headers?.get("authorization") || "";
   const m = auth.match(/^Bearer\s+(.+)$/i);
   return m ? m[1] : null;
 }
 
-export async function getUser(request, env) {
-  const token = getBearerToken(request);
+/**
+ * Verify Auth0 access token using JWKS (jose)
+ */
+async function verifyAccessToken(token, env) {
+  const issuer = env.AUTH0_ISSUER || `https://${env.AUTH0_DOMAIN}/`;
+  const audience = env.AUTH0_AUDIENCE;
+
+  if (!audience) throw new Error("Missing AUTH0_AUDIENCE env var");
+  if (!issuer) throw new Error("Missing AUTH0_ISSUER/AUTH0_DOMAIN env var");
+
+  const jwksUrl = new URL(".well-known/jwks.json", issuer);
+  const JWKS = createRemoteJWKSet(jwksUrl);
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer,
+    audience,
+  });
+
+  return payload;
+}
+
+/**
+ * Returns user claims or null if not logged in (no token)
+ */
+export async function getUser(context) {
+  // Important: Pages Functions always passes a single 'context' arg
+  const req = context?.request;
+  if (!req) throw new Error("getUser(): context.request is missing");
+
+  const token = getBearerToken(req);
   if (!token) return null;
 
-  const payload = decodeJwtPayload(token);
-  if (!payload) return null;
+  const payload = await verifyAccessToken(token, context.env);
 
-  // Auth0 standard-ish fields
-  const userId = payload.sub || null;
-  const email =
-    payload.email ||
-    payload["https://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] ||
-    null;
-
-  const name = payload.name || payload.nickname || payload.given_name || null;
-
-  // Orgs: may appear as org_id / org_name depending on flow
-  const orgId = payload.org_id || payload.organization_id || null;
-
-  return { userId, email, name, orgId, raw: payload };
+  return {
+    sub: payload.sub,
+    // Access tokens often don't include email unless you added it via Action / custom claims
+    email: payload.email || payload["https://task-manager/email"] || null,
+    name: payload.name || payload.nickname || null,
+    org_id: payload.org_id || null,
+    org_name: payload.org_name || null,
+    // keep full payload if you want to debug later
+    claims: payload,
+  };
 }
 
 /**
  * requireAuth(context)
- * - Validates presence of bearer token
- * - Returns { ok:false, res } on failure
- * - Returns { ok:true, user } on success
- * - Also attaches tenantId + role if membership exists
+ * - validates Bearer token
+ * - optionally enforces org_id (if env.VITE_AUTH0_ORG_ID exists)
+ * - resolves tenant membership from D1
+ * - returns { user, tenant } OR a Response (401/403)
  */
 export async function requireAuth(context) {
-  const request = context?.request;
-  const env = context?.env;
-
-  if (!request?.headers) {
-    return { ok: false, res: unauthorized("Invalid request context (missing request).") };
-  }
-  if (!env?.DB) {
-    return { ok: false, res: json({ error: "Server misconfigured (DB binding missing)." }, 500) };
+  let user;
+  try {
+    user = await getUser(context);
+  } catch (e) {
+    // token malformed / jwt verify failed / missing config
+    return unauthorized("Unauthorized", { detail: String(e?.message || e) });
   }
 
-  const user = await getUser(request, env);
-  if (!user?.userId) {
-    return { ok: false, res: unauthorized("Unauthorized (token missing/invalid).") };
-  }
+  if (!user) return unauthorized("Unauthorized");
 
-  // 1) Try membership by userId
-  let member = await env.DB.prepare(
-    `SELECT tenantId, role, email, name, userId FROM tenant_members WHERE userId = ? LIMIT 1`
-  )
-    .bind(user.userId)
-    .first();
+  const { env } = context;
 
-  // 2) Fallback by email (helps when auth connection changes but email stays same)
-  if (!member?.tenantId && user.email) {
-    member = await env.DB.prepare(
-      `SELECT tenantId, role, email, name, userId FROM tenant_members WHERE email = ? LIMIT 1`
-    )
-      .bind(user.email)
-      .first();
-
-    // If found by email, link row to current Auth0 userId for next time
-    if (member?.tenantId && member.userId !== user.userId) {
-      await env.DB.prepare(`UPDATE tenant_members SET userId = ? WHERE email = ?`)
-        .bind(user.userId, user.email)
-        .run();
+  // Optional: enforce org_id if you set VITE_AUTH0_ORG_ID in wrangler.toml vars
+  const requiredOrgId = env.VITE_AUTH0_ORG_ID || null;
+  if (requiredOrgId) {
+    if (!user.org_id) {
+      return forbidden("No organization found on token. Ensure org login is enabled.", {
+        requiredOrgId,
+      });
+    }
+    if (user.org_id !== requiredOrgId) {
+      return forbidden("Organization mismatch.", {
+        requiredOrgId,
+        tokenOrgId: user.org_id,
+      });
     }
   }
 
-  if (!member?.tenantId) {
-    return {
-      ok: false,
-      res: forbidden("No tenant assigned to this user yet.", {
-        hint:
-          "Add the user to a tenant_members row (or invite / auto-membership flow) and ensure email matches.",
-      }),
-    };
+  if (!env.DB) {
+    return new Response(
+      "Server misconfigured: missing D1 binding (env.DB). Add [[d1_databases]] binding=\"DB\" in wrangler.toml.",
+      { status: 500 }
+    );
   }
 
-  return {
-    ok: true,
-    user: {
-      userId: user.userId,
-      email: user.email || member.email || "",
-      name: user.name || member.name || "",
-      role: member.role || "member",
-      tenantId: member.tenantId,
-      orgId: user.orgId || null,
-    },
+  // Find membership by userId first, then email fallback (if token includes email)
+  const userId = user.sub;
+  const email = user.email;
+
+  let member = null;
+
+  if (userId) {
+    member = await env.DB.prepare(
+      `SELECT tenantId, role, email, name
+       FROM tenant_members
+       WHERE userId = ?
+       LIMIT 1`
+    )
+      .bind(userId)
+      .first();
+  }
+
+  if (!member && email) {
+    member = await env.DB.prepare(
+      `SELECT tenantId, role, email, name
+       FROM tenant_members
+       WHERE lower(email) = lower(?)
+       LIMIT 1`
+    )
+      .bind(email)
+      .first();
+  }
+
+  if (!member) {
+    return forbidden("No tenant assigned to this user yet.", {
+      hint: "Ensure the user exists in tenant_members with matching userId (Auth0 sub) or email.",
+      userId,
+      email,
+    });
+  }
+
+  const tenantRow = await env.DB.prepare(
+    `SELECT id, name FROM tenants WHERE id = ? LIMIT 1`
+  )
+    .bind(member.tenantId)
+    .first();
+
+  const tenant = {
+    tenantId: member.tenantId,
+    tenantName: tenantRow?.name || member.tenantId,
+    role: member.role || "member",
+    memberEmail: member.email || null,
+    memberName: member.name || null,
   };
+
+  return { user, tenant };
 }
