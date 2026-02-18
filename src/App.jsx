@@ -93,7 +93,17 @@ export default function App() {
   const loadTasks = useCallback(async () => {
     setApiError("");
     if (!isAuthenticated) { setTasks([]); return; }
-    try { const d = await fetchJSON("/tasks"); setTasks(d?.tasks || []); }
+    try {
+      const d = await fetchJSON("/tasks");
+      const tasks = (d?.tasks || []).map(t => ({
+        ...t,
+        taskName:             t.title       || t.taskName || "",
+        projectName:          t.project     || t.projectName || "",
+        section:              t.type        || t.section || "",
+        externalStakeholders: t.stakeholder || t.externalStakeholders || "",
+      }));
+      setTasks(tasks);
+    }
     catch (e) { setApiError(String(e?.message || e)); setTasks([]); }
   }, [isAuthenticated]);
 
@@ -106,15 +116,31 @@ export default function App() {
   useEffect(() => { if (!isLoading) { loadTasks(); loadProjects(); } }, [isLoading, isAuthenticated]);
 
   // ── task CRUD ──
+  // Map form fields to API field names
+  function toApiPayload(formData) {
+    return {
+      title:                formData.taskName,
+      description:          formData.description,
+      status:               formData.status,
+      priority:             formData.priority,
+      owner:                formData.owner,
+      dueDate:              formData.dueDate,
+      project:              formData.projectName,
+      stage:                formData.stage,
+      type:                 formData.section,
+      stakeholder:          formData.externalStakeholders,
+    };
+  }
+
   async function handleCreateTask(formData) {
     try {
-      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) });
+      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(toApiPayload(formData)) });
       setShowTaskForm(false); setEditingTask(null); await loadTasks();
     } catch (e) { alert("Create failed: " + e.message); }
   }
   async function handleEditTask(formData) {
     try {
-      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) });
+      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(toApiPayload(formData)) });
       setShowTaskForm(false); setEditingTask(null); await loadTasks();
     } catch (e) { alert("Update failed: " + e.message); }
   }
