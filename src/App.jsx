@@ -367,6 +367,7 @@ export default function App() {
             initialTask={editingTask}
             onSubmit={editingTask?.id ? handleEditTask : handleCreateTask}
             onCancel={() => { setShowTaskForm(false); setEditingTask(null); }}
+            getToken={getToken}
           />
         </Modal>
 
