@@ -16,3 +16,7 @@ VITE_AUTH0_ORG_ID = "org_VzWrWJWhWcOChctX"
 binding = "DB"
 database_name = "task-manager-prod"
 database_id = "701e141c-5fe3-4a6b-a72a-ca6ca69268e5"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "task-manager-prod"
