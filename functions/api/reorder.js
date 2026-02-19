@@ -18,8 +18,10 @@ async function isStageOwner(db, email, projectName, stageName) {
 }
 
 export async function onRequestPost(context) {
-  const user = getUser(context);
-  if (!user.email) return unauthorized();
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { user, tenant } = auth;
+
 
   const body = await context.request.json().catch(() => null);
   const updates = Array.isArray(body?.updates) ? body.updates : [];

@@ -4,8 +4,10 @@ import { requireAuth, json, badRequest, forbidden } from "./_auth";
 const norm = (v = "") => String(v).trim().toLowerCase();
 
 export async function onRequestPut(context) {
-  const user = getUser(context);
-  if (!user.email) return unauthorized();
+  const auth = await requireAuth(context);
+  if (auth instanceof Response) return auth;
+  const { user, tenant } = auth;
+
 
   const body = await context.request.json().catch(() => null);
   const projectName = String(body?.projectName || "").trim();
