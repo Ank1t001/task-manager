@@ -21,10 +21,11 @@ function pillBase() {
 export default function TaskTable({
   tasks, allOwnerOptions, allTypeOptions,
   query, setQuery, statusFilter, setStatusFilter, ownerFilter, setOwnerFilter,
+  dateFilter, setDateFilter, customDateFrom, setCustomDateFrom, customDateTo, setCustomDateTo,
   onDelete, onEdit,
   canEditAny, canEditTask,
-  getToken,          // NEW — for stage progress fetch
-  projectStages,     // NEW — [{stageName, sortOrder, stageOwnerEmail}] for the current project
+  getToken,
+  projectStages,
 }) {
   const [expandedTask, setExpandedTask] = useState(null);
 
@@ -52,8 +53,42 @@ export default function TaskTable({
           <select className="dtt-select" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} style={{ width: 160 }}>
             {(allOwnerOptions || ["All"]).map(o => <option key={o} value={o}>{o === "All" ? "All Owners" : o}</option>)}
           </select>
-          <button className="dtt-btn" onClick={() => { setQuery(""); setStatusFilter("All"); setOwnerFilter("All"); }}>Clear</button>
+          <button className="dtt-btn" onClick={() => { setQuery(""); setStatusFilter("All"); setOwnerFilter("All"); setDateFilter?.("All"); setCustomDateFrom?.(""); setCustomDateTo?.(""); }}>Clear</button>
           <span className="dtt-pill">{tasks.length} tasks</span>
+        </div>
+
+        {/* Date filter row */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)" }}>Due Date:</span>
+          {["All", "Today", "Yesterday", "This Week", "This Month", "Custom"].map(opt => (
+            <button key={opt} type="button"
+              onClick={() => setDateFilter?.(opt)}
+              style={{
+                padding: "5px 14px", borderRadius: 999, fontSize: 12, fontWeight: 900, cursor: "pointer",
+                border: `1px solid ${dateFilter === opt ? "rgba(77,124,255,0.6)" : "var(--border)"}`,
+                background: dateFilter === opt ? "rgba(77,124,255,0.20)" : "transparent",
+                color: dateFilter === opt ? "#93c5fd" : "var(--muted)",
+                transition: "all 0.15s",
+              }}>
+              {opt}
+            </button>
+          ))}
+          {dateFilter === "Custom" && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="date" className="dtt-input" value={customDateFrom || ""}
+                onChange={e => setCustomDateFrom?.(e.target.value)}
+                style={{ width: 150, fontSize: 12 }} />
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>to</span>
+              <input type="date" className="dtt-input" value={customDateTo || ""}
+                onChange={e => setCustomDateTo?.(e.target.value)}
+                style={{ width: 150, fontSize: 12 }} />
+            </div>
+          )}
+          {dateFilter !== "All" && (
+            <span style={{ fontSize: 11, color: "rgba(245,158,11,0.9)", fontWeight: 900 }}>
+              🔍 Filtering by due date
+            </span>
+          )}
         </div>
       </div>
 

@@ -58,6 +58,9 @@ export default function App() {
   const [query, setQuery]               = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter]   = useState("All");
+  const [dateFilter, setDateFilter]     = useState("All");   // "All"|"Today"|"Yesterday"|"This Week"|"This Month"|"Custom"
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo]     = useState("");
 
   const audience     = import.meta.env.VITE_AUTH0_AUDIENCE;
   const organization = import.meta.env.VITE_AUTH0_ORG_ID;
@@ -178,15 +181,54 @@ export default function App() {
   const allOwnerOptions = useMemo(() => ["All", ...[...new Set(tasks.map(t => t.owner).filter(Boolean))].sort()], [tasks]);
   const allTypeOptions  = useMemo(() => ["All", ...[...new Set(tasks.map(t => t.section).filter(Boolean))].sort()], [tasks]);
 
-  const filteredTasks = useMemo(() => tasks.filter(t => {
-    if (statusFilter !== "All" && t.status !== statusFilter) return false;
-    if (ownerFilter  !== "All" && t.owner  !== ownerFilter)  return false;
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      if (![t.taskName, t.description, t.section, t.externalStakeholders].join(" ").toLowerCase().includes(q)) return false;
+  const filteredTasks = useMemo(() => {
+    const now   = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    function inRange(task) {
+      if (dateFilter === "All") return true;
+      const raw = task.dueDate || task.createdAt || "";
+      if (!raw) return dateFilter === "All";
+      const d = new Date(raw.slice(0, 10));
+      if (isNaN(d.getTime())) return false;
+
+      if (dateFilter === "Today") {
+        return d >= today && d < new Date(today.getTime() + 86400000);
+      }
+      if (dateFilter === "Yesterday") {
+        const yest = new Date(today.getTime() - 86400000);
+        return d >= yest && d < today;
+      }
+      if (dateFilter === "This Week") {
+        const dayOfWeek = today.getDay(); // 0=Sun
+        const weekStart = new Date(today.getTime() - dayOfWeek * 86400000);
+        const weekEnd   = new Date(weekStart.getTime() + 7 * 86400000);
+        return d >= weekStart && d < weekEnd;
+      }
+      if (dateFilter === "This Month") {
+        return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+      }
+      if (dateFilter === "Custom") {
+        const from = customDateFrom ? new Date(customDateFrom) : null;
+        const to   = customDateTo   ? new Date(new Date(customDateTo).getTime() + 86400000) : null;
+        if (from && d < from) return false;
+        if (to   && d >= to)  return false;
+        return true;
+      }
+      return true;
     }
-    return true;
-  }), [tasks, statusFilter, ownerFilter, query]);
+
+    return tasks.filter(t => {
+      if (statusFilter !== "All" && t.status !== statusFilter) return false;
+      if (ownerFilter  !== "All" && t.owner  !== ownerFilter)  return false;
+      if (!inRange(t)) return false;
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        if (![t.taskName, t.description, t.section, t.externalStakeholders].join(" ").toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tasks, statusFilter, ownerFilter, query, dateFilter, customDateFrom, customDateTo]);
 
   const userInitial = (user?.name || user?.email || "?")[0].toUpperCase();
 
@@ -349,6 +391,9 @@ export default function App() {
                       query={query} setQuery={setQuery}
                       statusFilter={statusFilter} setStatusFilter={setStatusFilter}
                       ownerFilter={ownerFilter} setOwnerFilter={setOwnerFilter}
+                      dateFilter={dateFilter} setDateFilter={setDateFilter}
+                      customDateFrom={customDateFrom} setCustomDateFrom={setCustomDateFrom}
+                      customDateTo={customDateTo} setCustomDateTo={setCustomDateTo}
                       onEdit={(t) => { setEditingTask(t); setShowTaskForm(true); }}
                       onDelete={handleDeleteTask}
                       canEditAny={true}
