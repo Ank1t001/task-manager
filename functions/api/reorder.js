@@ -1,5 +1,5 @@
 // functions/api/reorder.js
-import { getUser, json, badRequest, unauthorized, forbidden } from "./_auth";
+import { requireAuth, json, badRequest, forbidden } from "./_auth";
 
 const isoNow = () => new Date().toISOString();
 const norm = (v = "") => String(v).trim().toLowerCase();
