@@ -1,4 +1,4 @@
-name = "task-manager-prod"
+name = "task-manager-staging"
 pages_build_output_dir = "dist"
 
 [vars]
@@ -8,15 +8,15 @@ AUTH0_ISSUER = "https://taskmanager.ca.auth0.com/"
 
 VITE_AUTH0_DOMAIN = "taskmanager.ca.auth0.com"
 VITE_AUTH0_AUDIENCE = "https://task-manager-user/api"
-VITE_AUTH0_REDIRECT_URI = "https://task-manager-prod.pages.dev"
-VITE_AUTH0_CLIENT_ID = "U7adiigDl3UV7MVxPSeh04kR5QM9G5ZZ"
+VITE_AUTH0_REDIRECT_URI = "https://task-manager-staging.pages.dev"
+VITE_AUTH0_CLIENT_ID = "Dx5tKH6aiAIgmeKo9u46TMg1URKIz5m3"
 VITE_AUTH0_ORG_ID = "org_VzWrWJWhWcOChctX"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "task-manager-prod"
-database_id = "701e141c-5fe3-4a6b-a72a-ca6ca69268e5"
+database_name = "task-manager-staging"
+database_id = "5edb2651-b413-4b3c-a661-59d0b1f1af74"
 
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "task-manager-prod"
+bucket_name = "task-manager-staging"

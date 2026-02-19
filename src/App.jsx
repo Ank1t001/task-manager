@@ -31,17 +31,17 @@ export default function App() {
   const [tasks, setTasks]         = useState([]);
   const [projects, setProjects]   = useState([]);
   const [apiError, setApiError]   = useState("");
-  const [activeTab, setActiveTab] = useState("tasks");   // "tasks" | "projects"
-  const [viewMode, setViewMode]   = useState("table");   // "table" | "kanban"
+  const [activeTab, setActiveTab] = useState("tasks");
+  const [viewMode, setViewMode]   = useState("table");
   const [theme, setTheme]         = useState("dark");
 
   // ── task modal ──
-  const [showTaskForm, setShowTaskForm]   = useState(false);
-  const [editingTask, setEditingTask]     = useState(null);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [editingTask, setEditingTask]   = useState(null);
 
   // ── project modal ──
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [editingProject, setEditingProject]   = useState(null); // null=create, obj=edit
+  const [editingProject, setEditingProject]   = useState(null);
   const [projName, setProjName]               = useState("");
   const [projOwnerName, setProjOwnerName]     = useState("");
   const [projOwnerEmail, setProjOwnerEmail]   = useState("");
@@ -58,6 +58,9 @@ export default function App() {
   const [query, setQuery]               = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [ownerFilter, setOwnerFilter]   = useState("All");
+  const [dateFilter, setDateFilter]     = useState("All");   // "All"|"Today"|"Yesterday"|"This Week"|"This Month"|"Custom"
+  const [customDateFrom, setCustomDateFrom] = useState("");
+  const [customDateTo, setCustomDateTo]     = useState("");
 
   const audience     = import.meta.env.VITE_AUTH0_AUDIENCE;
   const organization = import.meta.env.VITE_AUTH0_ORG_ID;
@@ -69,13 +72,20 @@ export default function App() {
 
   // ── auth helpers ──
   async function getToken() {
-    return getAccessTokenSilently({ authorizationParams: { audience, organization, scope: "openid profile email" } });
+    return getAccessTokenSilently({
+      authorizationParams: { audience, organization, scope: "openid profile email" },
+    });
   }
+
   async function fetchJSON(path, opts = {}) {
     const token = await getToken();
     const res = await fetch(`${apiBase}${path}`, {
       ...opts,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(opts.headers || {}) },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
     });
     const ct = res.headers.get("content-type") || "";
     if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t.slice(0, 400)}`); }
@@ -86,7 +96,19 @@ export default function App() {
   const loadTasks = useCallback(async () => {
     setApiError("");
     if (!isAuthenticated) { setTasks([]); return; }
-    try { const d = await fetchJSON("/tasks"); setTasks(d?.tasks || []); }
+    try {
+      const d = await fetchJSON("/tasks");
+      const tasks = (d?.tasks || []).map(t => ({
+        ...t,
+        taskName:             t.title       || t.taskName || "",
+        projectName:          t.project     || t.projectName || "",
+        section:              t.type        || t.section || "",
+        externalStakeholders: t.stakeholder || t.externalStakeholders || "",
+        assignedTo:           t.assignedTo  || "",
+        assignedToEmail:      t.assignedToEmail || "",
+      }));
+      setTasks(tasks);
+    }
     catch (e) { setApiError(String(e?.message || e)); setTasks([]); }
   }, [isAuthenticated]);
 
@@ -100,12 +122,16 @@ export default function App() {
 
   // ── task CRUD ──
   async function handleCreateTask(formData) {
-    try { await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) }); setShowTaskForm(false); setEditingTask(null); await loadTasks(); }
-    catch (e) { alert("Create failed: " + e.message); }
+    try {
+      await fetchJSON("/tasks", { method: "POST", body: JSON.stringify(formData) });
+      setShowTaskForm(false); setEditingTask(null); await loadTasks();
+    } catch (e) { alert("Create failed: " + e.message); }
   }
   async function handleEditTask(formData) {
-    try { await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) }); setShowTaskForm(false); setEditingTask(null); await loadTasks(); }
-    catch (e) { alert("Update failed: " + e.message); }
+    try {
+      await fetchJSON(`/tasks/${editingTask.id}`, { method: "PUT", body: JSON.stringify(formData) });
+      setShowTaskForm(false); setEditingTask(null); await loadTasks();
+    } catch (e) { alert("Update failed: " + e.message); }
   }
   async function handleDeleteTask(taskId) {
     if (!confirm("Delete this task? This cannot be undone.")) return;
@@ -155,15 +181,54 @@ export default function App() {
   const allOwnerOptions = useMemo(() => ["All", ...[...new Set(tasks.map(t => t.owner).filter(Boolean))].sort()], [tasks]);
   const allTypeOptions  = useMemo(() => ["All", ...[...new Set(tasks.map(t => t.section).filter(Boolean))].sort()], [tasks]);
 
-  const filteredTasks = useMemo(() => tasks.filter(t => {
-    if (statusFilter !== "All" && t.status !== statusFilter) return false;
-    if (ownerFilter  !== "All" && t.owner  !== ownerFilter)  return false;
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      if (![t.taskName, t.description, t.section, t.externalStakeholders].join(" ").toLowerCase().includes(q)) return false;
+  const filteredTasks = useMemo(() => {
+    const now   = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    function inRange(task) {
+      if (dateFilter === "All") return true;
+      const raw = task.dueDate || task.createdAt || "";
+      if (!raw) return dateFilter === "All";
+      const d = new Date(raw.slice(0, 10));
+      if (isNaN(d.getTime())) return false;
+
+      if (dateFilter === "Today") {
+        return d >= today && d < new Date(today.getTime() + 86400000);
+      }
+      if (dateFilter === "Yesterday") {
+        const yest = new Date(today.getTime() - 86400000);
+        return d >= yest && d < today;
+      }
+      if (dateFilter === "This Week") {
+        const dayOfWeek = today.getDay(); // 0=Sun
+        const weekStart = new Date(today.getTime() - dayOfWeek * 86400000);
+        const weekEnd   = new Date(weekStart.getTime() + 7 * 86400000);
+        return d >= weekStart && d < weekEnd;
+      }
+      if (dateFilter === "This Month") {
+        return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+      }
+      if (dateFilter === "Custom") {
+        const from = customDateFrom ? new Date(customDateFrom) : null;
+        const to   = customDateTo   ? new Date(new Date(customDateTo).getTime() + 86400000) : null;
+        if (from && d < from) return false;
+        if (to   && d >= to)  return false;
+        return true;
+      }
+      return true;
     }
-    return true;
-  }), [tasks, statusFilter, ownerFilter, query]);
+
+    return tasks.filter(t => {
+      if (statusFilter !== "All" && t.status !== statusFilter) return false;
+      if (ownerFilter  !== "All" && t.owner  !== ownerFilter)  return false;
+      if (!inRange(t)) return false;
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        if (![t.taskName, t.description, t.section, t.externalStakeholders].join(" ").toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tasks, statusFilter, ownerFilter, query, dateFilter, customDateFrom, customDateTo]);
 
   const userInitial = (user?.name || user?.email || "?")[0].toUpperCase();
 
@@ -189,6 +254,7 @@ export default function App() {
             onProjectChanged={() => { loadProjects(); setOpenProject(null); }}
             onEditTask={(t) => { setEditingTask(t); setShowTaskForm(true); }}
             onCreateTaskInStage={(opts) => { setEditingTask({ projectName: opts.projectName, stage: opts.stage }); setShowTaskForm(true); }}
+            getToken={getToken}
           />
         </div>
       </div>
@@ -325,6 +391,9 @@ export default function App() {
                       query={query} setQuery={setQuery}
                       statusFilter={statusFilter} setStatusFilter={setStatusFilter}
                       ownerFilter={ownerFilter} setOwnerFilter={setOwnerFilter}
+                      dateFilter={dateFilter} setDateFilter={setDateFilter}
+                      customDateFrom={customDateFrom} setCustomDateFrom={setCustomDateFrom}
+                      customDateTo={customDateTo} setCustomDateTo={setCustomDateTo}
                       onEdit={(t) => { setEditingTask(t); setShowTaskForm(true); }}
                       onDelete={handleDeleteTask}
                       canEditAny={true}
@@ -355,6 +424,7 @@ export default function App() {
             initialTask={editingTask}
             onSubmit={editingTask?.id ? handleEditTask : handleCreateTask}
             onCancel={() => { setShowTaskForm(false); setEditingTask(null); }}
+            getToken={getToken}
           />
         </Modal>
 
@@ -363,7 +433,6 @@ export default function App() {
           title={editingProject ? "Edit Project" : "New Project"}
           subtitle={editingProject ? `Editing: ${editingProject.name}` : "Create a new project for your team"}>
           <div style={{ display: "grid", gap: 14 }}>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ display: "grid", gap: 8 }}>
                 <label style={{ fontWeight: 900, fontSize: 13 }}>Project Name *</label>
@@ -431,13 +500,14 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
     const needle = q.trim().toLowerCase();
     if (!needle) return projects;
     return projects.filter(p =>
-      p.name?.toLowerCase().includes(needle) || p.ownerEmail?.toLowerCase().includes(needle) || p.ownerName?.toLowerCase().includes(needle)
+      p.name?.toLowerCase().includes(needle) ||
+      p.ownerEmail?.toLowerCase().includes(needle) ||
+      p.ownerName?.toLowerCase().includes(needle)
     );
   }, [projects, q]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {/* Search bar */}
       <div className="dtt-card" style={{ padding: 14 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input className="dtt-input" placeholder="Search projects…" value={q} onChange={e => setQ(e.target.value)} style={{ maxWidth: 340 }} />
@@ -457,16 +527,12 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
           {filtered.map(p => (
             <div key={p.name} className="dtt-card"
               style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-
-              {/* Icon */}
               <div style={{
                 width: 42, height: 42, borderRadius: 12, flexShrink: 0,
                 background: "linear-gradient(135deg, rgba(77,124,255,0.30), rgba(168,85,247,0.30))",
                 border: "1px solid rgba(77,124,255,0.35)",
                 display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
               }}>📁</div>
-
-              {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 900, fontSize: 15 }}>{p.name}</div>
                 <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 3 }}>
@@ -475,17 +541,11 @@ function ProjectsPanel({ projects, onOpen, onEdit, onDelete }) {
                   {Number(p.archived) === 1 ? <span className="dtt-pill" style={{ marginLeft: 8 }}>Archived</span> : null}
                 </div>
               </div>
-
-              {/* Actions */}
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button className="dtt-btn" onClick={() => onOpen(p)}
-                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                  Open →
-                </button>
+                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>Open →</button>
                 <button className="dtt-btn" onClick={() => onEdit(p)}
-                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                  ✏️ Edit
-                </button>
+                  style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>✏️ Edit</button>
                 <button onClick={() => onDelete(p)}
                   style={{ borderRadius: 12, padding: "8px 12px", border: "1px solid rgba(239,68,68,0.40)", background: "rgba(239,68,68,0.10)", color: "#fca5a5", cursor: "pointer", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                   🗑️ Delete
