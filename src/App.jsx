@@ -8,6 +8,9 @@ import Modal from "./components/Modal.jsx";
 import MiniDashboard from "./components/MiniDashboard.jsx";
 import KanbanBoard from "./components/KanbanBoard.jsx";
 import ProjectView from "./components/ProjectView.jsx";
+import Dashboard from "./components/Dashboard.jsx";
+import ActivityFeed from "./components/ActivityFeed.jsx";
+import NotificationsBadge from "./components/NotificationsBadge.jsx";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function parseStagesText(text) {
@@ -33,7 +36,10 @@ export default function App() {
   const [apiError, setApiError]   = useState("");
   const [activeTab, setActiveTab] = useState("tasks");
   const [viewMode, setViewMode]   = useState("table");
-  const [theme, setTheme]         = useState("dark");
+  const [theme, setTheme]         = useState(() => localStorage.getItem("theme") || "light");
+
+  // ── panels ──
+  const [activityOpen, setActivityOpen] = useState(false);
 
   // ── task modal ──
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -68,7 +74,10 @@ export default function App() {
   const apiBase      = "/api";
 
   // apply theme
-  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   // ── auth helpers ──
   async function getToken() {
@@ -285,6 +294,12 @@ export default function App() {
               <button className="dtt-iconBtn" title="Toggle theme" onClick={() => setTheme(t => t === "dark" ? "light" : "dark")} style={{ fontSize: 16 }}>
                 {theme === "dark" ? "☀️" : "🌙"}
               </button>
+              {isAuthenticated && (
+                <>
+                  <NotificationsBadge getToken={getToken} userEmail={user?.email} />
+                  <button className="dtt-iconBtn" title="Activity Feed" onClick={() => setActivityOpen(true)} style={{ fontSize: 18 }}>⚡</button>
+                </>
+              )}
 
               {isAuthenticated && (
                 <>
@@ -359,6 +374,10 @@ export default function App() {
                     style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
                     📁 Projects <span className="dtt-pill" style={{ marginLeft: 4, padding: "2px 8px", fontSize: 11 }}>{projects.length}</span>
                   </button>
+                  <button className={`dtt-tab${activeTab === "dashboard" ? " dtt-tabActive" : ""}`} onClick={() => setActiveTab("dashboard")}
+                    style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                    📊 Dashboard
+                  </button>
                 </div>
               </div>
             </div>
@@ -401,6 +420,11 @@ export default function App() {
                     />
                 }
               </>
+            )}
+
+            {/* ── DASHBOARD TAB ── */}
+            {activeTab === "dashboard" && (
+              <Dashboard tasks={tasks} projects={projects} />
             )}
 
             {/* ── PROJECTS TAB ── */}
@@ -488,6 +512,7 @@ export default function App() {
         </Modal>
 
       </div>
+      <ActivityFeed open={activityOpen} onClose={() => setActivityOpen(false)} getToken={getToken} />
     </div>
   );
 }
