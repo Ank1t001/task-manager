@@ -1,8 +1,8 @@
 // src/components/TaskForm.jsx
 import { useEffect, useMemo, useState } from "react";
 import { OWNER_OPTIONS } from "../config/owners";
-import TaskComments from "./TaskComments";
 import { SECTION_OPTIONS } from "../config/sections";
+import TaskComments from "./TaskComments";
 
 const STATUS_OPTIONS   = ["To Do", "In Progress", "Done"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
@@ -19,18 +19,24 @@ const FIXED_STAGE_OPTIONS = [
   "Launch/Execution",
 ];
 
-// Map owner name → email (extend as needed)
 const OWNER_EMAILS = {
-  "Ankit":    "ankit@digijabber.com",
-  "Sheel":    "sheelp@equiton.com",
-  "Jacob":    "jacob@equiton.com",
-  "Aditi":    "aditi@equiton.com",
-  "Vanessa":  "vanessa@equiton.com",
-  "Mandeep":  "mandeep@equiton.com",
+  "Ankit":   "ankit@digijabber.com",
+  "Sheel":   "sheelp@equiton.com",
+  "Jacob":   "jacob@equiton.com",
+  "Aditi":   "aditi@equiton.com",
+  "Vanessa": "vanessa@equiton.com",
+  "Mandeep": "mandeep@equiton.com",
 };
 
-export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create", getToken, userRole = "admin" }) {
+export default function TaskForm({
+  onSubmit, onCancel,
+  initialTask = null,
+  mode = "create",
+  getToken,
+  userRole = "admin",
+}) {
   const isEdit = mode === "edit";
+  const canAssign = userRole === "admin" || userRole === "manager";
 
   const defaultForm = useMemo(() => ({
     taskName: "", description: "", owner: "Ankit", section: "Other",
@@ -39,13 +45,13 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     assignedTo: "", assignedToEmail: "",
   }), []);
 
-  const [form, setForm]           = useState(defaultForm);
-  const [projects, setProjects]   = useState([]);
-  const [assignMode, setAssignMode] = useState("dropdown"); // "dropdown" | "email"
+  const [form, setForm]               = useState(defaultForm);
+  const [projects, setProjects]       = useState([]);
+  const [assignMode, setAssignMode]   = useState("dropdown");
   const [customEmail, setCustomEmail] = useState("");
   const [customName, setCustomName]   = useState("");
 
-  // Prefill
+  // Prefill when editing
   useEffect(() => {
     if (!initialTask) { setForm(defaultForm); return; }
     const f = {
@@ -70,16 +76,9 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
     }
   }, [initialTask, defaultForm]);
 
-  // Pre-fill project+stage when opened from "Add Task in Stage"
-  useEffect(() => {
-    if (initialTask?.projectName && !initialTask?.id) {
-      setForm(f => ({ ...f, projectName: initialTask.projectName || "", stage: initialTask.stage || "" }));
-    }
-  }, [initialTask]);
-
   function update(key, value) { setForm(f => ({ ...f, [key]: value })); }
 
-  // Load projects with auth
+  // Load projects
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -93,10 +92,9 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
       } catch {}
     }
     load();
-    return () => (alive = false);
+    return () => { alive = false; };
   }, [getToken]);
 
-  // Resolve assignee from current mode
   function resolvedAssignee() {
     if (assignMode === "email") {
       return { assignedTo: customName.trim(), assignedToEmail: customEmail.trim().toLowerCase() };
@@ -117,7 +115,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
   return (
     <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
 
-      {/* ── Project + Stage ── */}
+      {/* Project + Stage */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Project Name</label>
@@ -138,14 +136,14 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* ── Task Name ── */}
+      {/* Task Name */}
       <div style={{ display: "grid", gap: 8 }}>
         <label style={{ fontWeight: 900 }}>Task Name</label>
         <input className="dtt-input" value={form.taskName}
           onChange={e => update("taskName", e.target.value)} placeholder="Enter task name" autoFocus />
       </div>
 
-      {/* ── Description ── */}
+      {/* Description */}
       <div style={{ display: "grid", gap: 8 }}>
         <label style={{ fontWeight: 900 }}>Task Description</label>
         <textarea className="dtt-input" value={form.description}
@@ -153,7 +151,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
           placeholder="Add details, context, links, notes…" rows={3} style={{ resize: "vertical" }} />
       </div>
 
-      {/* ── Owner / Type / Priority / Status ── */}
+      {/* Owner / Type / Priority / Status */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Owner</label>
@@ -181,7 +179,7 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* ── Due Date / Stakeholders ── */}
+      {/* Due Date / Stakeholders */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ display: "grid", gap: 8 }}>
           <label style={{ fontWeight: 900 }}>Due Date</label>
@@ -194,101 +192,94 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* ── Assignee (admin/manager only) ── */}
-      {(userRole === "admin" || userRole === "manager") && (
-      <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(77,124,255,0.05)", display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <label style={{ fontWeight: 900, fontSize: 14 }}>👤 Assign Task To</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button type="button"
-              onClick={() => setAssignMode("dropdown")}
-              style={{ borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 900, cursor: "pointer",
-                border: `1px solid ${assignMode === "dropdown" ? "rgba(77,124,255,0.6)" : "var(--border)"}`,
-                background: assignMode === "dropdown" ? "rgba(77,124,255,0.2)" : "transparent",
-                color: assignMode === "dropdown" ? "#93c5fd" : "var(--muted)" }}>
-              Team Member
-            </button>
-            <button type="button"
-              onClick={() => setAssignMode("email")}
-              style={{ borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 900, cursor: "pointer",
-                border: `1px solid ${assignMode === "email" ? "rgba(77,124,255,0.6)" : "var(--border)"}`,
-                background: assignMode === "email" ? "rgba(77,124,255,0.2)" : "transparent",
-                color: assignMode === "email" ? "#93c5fd" : "var(--muted)" }}>
-              Custom Email
-            </button>
-          </div>
-        </div>
-
-        {assignMode === "dropdown" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontWeight: 700, fontSize: 13 }}>Team Member</label>
-              <select className="dtt-select" value={form.assignedTo} onChange={e => update("assignedTo", e.target.value)}>
-                <option value="">— Unassigned —</option>
-                {OWNER_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
+      {/* Assign To — admin/manager only */}
+      {canAssign && (
+        <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(77,124,255,0.05)", display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <label style={{ fontWeight: 900, fontSize: 14 }}>👤 Assign Task To</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" onClick={() => setAssignMode("dropdown")}
+                style={{ borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 900, cursor: "pointer",
+                  border: `1px solid ${assignMode === "dropdown" ? "rgba(77,124,255,0.6)" : "var(--border)"}`,
+                  background: assignMode === "dropdown" ? "rgba(77,124,255,0.2)" : "transparent",
+                  color: assignMode === "dropdown" ? "#93c5fd" : "var(--muted)" }}>
+                Team Member
+              </button>
+              <button type="button" onClick={() => setAssignMode("email")}
+                style={{ borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 900, cursor: "pointer",
+                  border: `1px solid ${assignMode === "email" ? "rgba(77,124,255,0.6)" : "var(--border)"}`,
+                  background: assignMode === "email" ? "rgba(77,124,255,0.2)" : "transparent",
+                  color: assignMode === "email" ? "#93c5fd" : "var(--muted)" }}>
+                Custom Email
+              </button>
             </div>
-            {form.assignedTo && (
+          </div>
+
+          {assignMode === "dropdown" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ display: "grid", gap: 8 }}>
-                <label style={{ fontWeight: 700, fontSize: 13 }}>Email</label>
-                <input className="dtt-input" readOnly value={OWNER_EMAILS[form.assignedTo] || "—"}
-                  style={{ opacity: 0.7, cursor: "default" }} />
+                <label style={{ fontWeight: 700, fontSize: 13 }}>Team Member</label>
+                <select className="dtt-select" value={form.assignedTo} onChange={e => update("assignedTo", e.target.value)}>
+                  <option value="">— Unassigned —</option>
+                  {OWNER_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
               </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontWeight: 700, fontSize: 13 }}>Name</label>
-              <input className="dtt-input" value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Full name" />
+              {form.assignedTo && (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label style={{ fontWeight: 700, fontSize: 13 }}>Email</label>
+                  <input className="dtt-input" readOnly value={OWNER_EMAILS[form.assignedTo] || "—"}
+                    style={{ opacity: 0.7, cursor: "default" }} />
+                </div>
+              )}
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontWeight: 700, fontSize: 13 }}>Email *</label>
-              <input className="dtt-input" type="email" value={customEmail} onChange={e => setCustomEmail(e.target.value)} placeholder="email@example.com" />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gap: 8 }}>
+                <label style={{ fontWeight: 700, fontSize: 13 }}>Name</label>
+                <input className="dtt-input" value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Full name" />
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <label style={{ fontWeight: 700, fontSize: 13 }}>Email *</label>
+                <input className="dtt-input" type="email" value={customEmail} onChange={e => setCustomEmail(e.target.value)} placeholder="email@example.com" />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Current assignee preview */}
-        {(form.assignedTo || customEmail) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, background: "rgba(77,124,255,0.12)", border: "1px solid rgba(77,124,255,0.3)" }}>
-            <div style={{ width: 28, height: 28, borderRadius: 999, background: "linear-gradient(135deg, #4d7cff, #a855f7)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 12, color: "#fff", flexShrink: 0 }}>
-              {(assignMode === "dropdown" ? form.assignedTo : customName || customEmail)?.[0]?.toUpperCase() || "?"}
-            </div>
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 13 }}>
-                {assignMode === "dropdown" ? (form.assignedTo || "Unassigned") : (customName || "Custom")}
+          {(form.assignedTo || customEmail) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, background: "rgba(77,124,255,0.12)", border: "1px solid rgba(77,124,255,0.3)" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 999, background: "linear-gradient(135deg,#4d7cff,#a855f7)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 12, color: "#fff", flexShrink: 0 }}>
+                {(assignMode === "dropdown" ? form.assignedTo : customName || customEmail)?.[0]?.toUpperCase() || "?"}
               </div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                {assignMode === "dropdown" ? (OWNER_EMAILS[form.assignedTo] || "") : customEmail}
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 13 }}>
+                  {assignMode === "dropdown" ? (form.assignedTo || "Unassigned") : (customName || "Custom")}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                  {assignMode === "dropdown" ? (OWNER_EMAILS[form.assignedTo] || "") : customEmail}
+                </div>
               </div>
+              <button type="button" onClick={() => { update("assignedTo", ""); setCustomEmail(""); setCustomName(""); }}
+                style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16 }}>✕</button>
             </div>
-            <button type="button" onClick={() => { update("assignedTo", ""); setCustomEmail(""); setCustomName(""); }}
-              style={{ marginLeft: "auto", background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16 }}>✕</button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Attachments (edit mode only) ── */}
-      {isEdit && initialTask?.id && (
-        <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(255,255,255,0.03)" }}>
-          <TaskAttachments taskId={initialTask.id} getToken={getToken} />
+          )}
         </div>
       )}
+
+      {/* Attachments hint for new tasks */}
       {!isEdit && (
         <div style={{ padding: "10px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "rgba(255,255,255,0.03)", color: "var(--muted)", fontSize: 12 }}>
           💡 You can attach files after creating the task by editing it.
         </div>
       )}
 
-      {/* ── COMMENTS (edit mode only) ── */}
-      {mode === "edit" && initialTask?.id && (
+      {/* Comments — edit mode only */}
+      {isEdit && initialTask?.id && (
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
           <TaskComments taskId={initialTask.id} getToken={getToken} currentUserEmail={form.assignedToEmail} />
         </div>
       )}
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
         <button type="button" className="dtt-btn" onClick={onCancel}>Cancel</button>
         <button type="submit" className="dtt-btnPrimary">
