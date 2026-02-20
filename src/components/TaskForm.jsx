@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { OWNER_OPTIONS } from "../config/owners";
 import TaskComments from "./TaskComments";
 import { SECTION_OPTIONS } from "../config/sections";
-import TaskAttachments from "./TaskAttachments";
 
 const STATUS_OPTIONS   = ["To Do", "In Progress", "Done"];
 const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
