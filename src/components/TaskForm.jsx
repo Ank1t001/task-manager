@@ -29,7 +29,7 @@ const OWNER_EMAILS = {
   "Mandeep":  "mandeep@equiton.com",
 };
 
-export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create", getToken }) {
+export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode = "create", getToken, userRole = "admin" }) {
   const isEdit = mode === "edit";
 
   const defaultForm = useMemo(() => ({
@@ -194,7 +194,8 @@ export default function TaskForm({ onSubmit, onCancel, initialTask = null, mode 
         </div>
       </div>
 
-      {/* ── Assignee ── */}
+      {/* ── Assignee (admin/manager only) ── */}
+      {(userRole === "admin" || userRole === "manager") && (
       <div style={{ padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(77,124,255,0.05)", display: "grid", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <label style={{ fontWeight: 900, fontSize: 14 }}>👤 Assign Task To</label>

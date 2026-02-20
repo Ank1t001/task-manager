@@ -24,9 +24,13 @@ export default function TaskTable({
   dateFilter, setDateFilter, customDateFrom, setCustomDateFrom, customDateTo, setCustomDateTo,
   onDelete, onEdit,
   canEditAny, canEditTask,
+  userRole,
   getToken,
   projectStages,
 }) {
+  const isViewer  = userRole === "viewer";
+  const canEdit   = !isViewer;
+  const canDelete = userRole === "admin" || userRole === "manager";
   const [expandedTask, setExpandedTask] = useState(null);
 
   const typeOptions = useMemo(() => {
@@ -167,8 +171,8 @@ export default function TaskTable({
                               {isExpanded ? "▲" : "▼ Stages"}
                             </button>
                           )}
-                          <button className="dtt-btn" disabled={!editable} onClick={() => onEdit?.(t)}>Edit</button>
-                          <button className="dtt-btn" disabled={!editable && !canEditAny} onClick={() => onDelete(t.id)}>Delete</button>
+                          {canEdit && <button className="dtt-btn" disabled={!editable} onClick={() => onEdit?.(t)}>Edit</button>}
+                          {canDelete && <button className="dtt-btn" onClick={() => onDelete(t.id)}>Delete</button>}
                         </div>
                       </Td>
                     </tr>

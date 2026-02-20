@@ -11,6 +11,7 @@ import ProjectView from "./components/ProjectView.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import ActivityFeed from "./components/ActivityFeed.jsx";
 import NotificationsBadge from "./components/NotificationsBadge.jsx";
+import UserManagement from "./components/UserManagement.jsx";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 function parseStagesText(text) {
@@ -37,6 +38,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("tasks");
   const [viewMode, setViewMode]   = useState("table");
   const [theme, setTheme]         = useState(() => localStorage.getItem("theme") || "light");
+
+  // ── role ──
+  const [userRole, setUserRole] = useState("member"); // admin|manager|member|viewer
 
   // ── panels ──
   const [activityOpen, setActivityOpen] = useState(false);
@@ -85,6 +89,19 @@ export default function App() {
       authorizationParams: { audience, organization, scope: "openid profile email" },
     });
   }
+
+  // Extract role from tenant after login
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    async function fetchRole() {
+      try {
+        const token = await getToken();
+        const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) { const d = await res.json(); setUserRole(d.tenant?.role || "member"); }
+      } catch {}
+    }
+    fetchRole();
+  }, [isAuthenticated]);
 
   async function fetchJSON(path, opts = {}) {
     const token = await getToken();
@@ -307,13 +324,13 @@ export default function App() {
                     style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "8px 14px" }}>
                     <span style={{ fontSize: 15 }}>↻</span> Refresh
                   </button>
-                  {activeTab === "tasks" && (
+                  {activeTab === "tasks" && userRole !== "viewer" && (
                     <button className="dtt-btnPrimary" onClick={() => { setEditingTask(null); setShowTaskForm(true); }}
                       style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", fontWeight: 900, fontSize: 14, borderRadius: 12 }}>
                       <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add Task
                     </button>
                   )}
-                  {activeTab === "projects" && (
+                  {activeTab === "projects" && (userRole === "admin" || userRole === "manager") && (
                     <button className="dtt-btnPrimary" onClick={openCreateProject}
                       style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", fontWeight: 900, fontSize: 14, borderRadius: 12 }}>
                       <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New Project
@@ -374,10 +391,18 @@ export default function App() {
                     style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
                     📁 Projects <span className="dtt-pill" style={{ marginLeft: 4, padding: "2px 8px", fontSize: 11 }}>{projects.length}</span>
                   </button>
-                  <button className={`dtt-tab${activeTab === "dashboard" ? " dtt-tabActive" : ""}`} onClick={() => setActiveTab("dashboard")}
-                    style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-                    📊 Dashboard
-                  </button>
+                  {userRole === "admin" && (
+                    <button className={`dtt-tab${activeTab === "dashboard" ? " dtt-tabActive" : ""}`} onClick={() => setActiveTab("dashboard")}
+                      style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                      📊 Dashboard
+                    </button>
+                  )}
+                  {userRole === "admin" && (
+                    <button className={`dtt-tab${activeTab === "users" ? " dtt-tabActive" : ""}`} onClick={() => setActiveTab("users")}
+                      style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                      👥 Team
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -413,6 +438,7 @@ export default function App() {
                       dateFilter={dateFilter} setDateFilter={setDateFilter}
                       customDateFrom={customDateFrom} setCustomDateFrom={setCustomDateFrom}
                       customDateTo={customDateTo} setCustomDateTo={setCustomDateTo}
+                      userRole={userRole}
                       onEdit={(t) => { setEditingTask(t); setShowTaskForm(true); }}
                       onDelete={handleDeleteTask}
                       canEditAny={true}
@@ -425,6 +451,11 @@ export default function App() {
             {/* ── DASHBOARD TAB ── */}
             {activeTab === "dashboard" && (
               <Dashboard tasks={tasks} projects={projects} />
+            )}
+
+            {/* ── USERS TAB ── */}
+            {activeTab === "users" && userRole === "admin" && (
+              <UserManagement getToken={getToken} currentUserEmail={user?.email} />
             )}
 
             {/* ── PROJECTS TAB ── */}
@@ -449,6 +480,7 @@ export default function App() {
             onSubmit={editingTask?.id ? handleEditTask : handleCreateTask}
             onCancel={() => { setShowTaskForm(false); setEditingTask(null); }}
             getToken={getToken}
+            userRole={userRole}
           />
         </Modal>
 
